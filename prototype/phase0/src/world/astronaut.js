@@ -190,6 +190,7 @@ export function createAstronaut(o = {}) {
   let tag = null;
   if (o.name) {
     tag = nameTag(o.name, { ring: preset.accent });
+    tag.userData.text = o.name;
     tag.position.set(0, 1.62, 0);
     root.add(tag);
   }
@@ -208,6 +209,21 @@ export function createAstronaut(o = {}) {
     state,
     tag,
     setHelmet(v) { helmet.visible = v; if (tag) tag.position.y = v ? 1.72 : 1.62; },
+    // 사용자 정보(우주복·피부·머리색·이름)를 그대로 따라가게 — 장면을 옮겨도 같은 아바타
+    applyProfile(pf) {
+      if (pf.preset) this.setPreset(pf.preset);
+      if (pf.skin) skinM.color.set(pf.skin);
+      if (pf.hair) hairM.color.set(pf.hair);
+      if (tag && pf.name && tag.userData.text !== pf.name) {
+        const y = tag.position.y;
+        root.remove(tag);
+        tag = nameTag(pf.name, { ring: SUIT_PRESETS[pf.preset || 'mint'].accent });
+        tag.userData.text = pf.name;
+        tag.position.set(0, y, 0);
+        root.add(tag);
+        this.tag = tag;
+      }
+    },
     setPreset(key) {
       const p = SUIT_PRESETS[key];
       suitM.color.set(p.suit);
@@ -308,6 +324,34 @@ export function createAstronaut(o = {}) {
         body.position.y = 0.24;
         torso.rotation.z = 0;
         head.rotation.set(0.25, Math.sin(tt * 0.3) * 0.2, 0);
+      } else if (m === 'drink') {
+        // 물 마시기: 오른손으로 물주머니를 입 앞까지 들어 올렸다가 내림 (state.drinkT = 시작 후 초)
+        const k = state.drinkT || 0;
+        const lift = THREE.MathUtils.smoothstep(k, 0, 0.6) * (1 - THREE.MathUtils.smoothstep(k, 3.2, 3.8));
+        const sip = THREE.MathUtils.smoothstep(k, 2.3, 2.7) * (1 - THREE.MathUtils.smoothstep(k, 3.0, 3.3));
+        legs[-1].rotation.x = legs[1].rotation.x = 0;
+        legs[-1].rotation.z = legs[1].rotation.z = 0;
+        arms[-1].rotation.x = Math.sin(tt * 1.3) * 0.05;
+        arms[-1].rotation.z = -0.16;
+        arms[1].rotation.x = -2.55 * lift;
+        arms[1].rotation.z = 0.14 - 0.6 * lift;
+        head.rotation.set(0.14 * sip - 0.06 * lift, 0, 0);
+        body.position.y = 0.36 + Math.sin(tt * 1.6) * 0.006;
+        torso.rotation.z = 0;
+      } else if (m === 'sip') {
+        // 우주복 안 음료 주머니: 헬멧 안에서 고개를 숙여 목 고리 쪽 빨대로 세 모금 (state.drinkT = 시작 후 초)
+        const k = state.drinkT || 0;
+        let dip = 0;
+        for (const s0 of [0.7, 2.0, 3.3]) dip = Math.max(dip, THREE.MathUtils.smoothstep(k, s0 - 0.35, s0) * (1 - THREE.MathUtils.smoothstep(k, s0 + 0.6, s0 + 0.95)));
+        legs[-1].rotation.x = legs[1].rotation.x = 0;
+        legs[-1].rotation.z = legs[1].rotation.z = 0;
+        arms[-1].rotation.x = -0.55 - 0.1 * dip;
+        arms[-1].rotation.z = 0.32;
+        arms[1].rotation.x = Math.sin(tt * 1.3) * 0.05;
+        arms[1].rotation.z = 0.16;
+        head.rotation.set(0.36 * dip, 0.08 * dip, 0);
+        body.position.y = 0.36 + Math.sin(tt * 1.6) * 0.006;
+        torso.rotation.z = 0;
       } else if (m === 'float') {
         const th = state.thrust;
         legs[-1].rotation.x = 0.28 + Math.sin(tt * 0.9) * 0.12 + th * 0.2;

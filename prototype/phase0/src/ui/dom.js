@@ -27,6 +27,14 @@ export const I = {
   info: s('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>'),
   jump: s('<path d="M12 21V9"/><path d="M7 13l5-5 5 5"/><path d="M5 3h14"/>'),
   more: s('<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>'),
+  compass: s('<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>'),
+  smile: s('<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/>'),
+  send: s('<path d="M4 12l16-8-6 16-2.5-6.5z"/>'),
+  rotL: s('<path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v4h4"/>'),
+  rotR: s('<path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4h-4"/>'),
+  user: s('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'),
+  level: s('<path d="M3 12h18"/><path d="M12 3v4M12 17v4"/><circle cx="12" cy="12" r="3"/>'),
+  close: s('<path d="M6 6l12 12M18 6L6 18"/>'),
 };
 
 const v = new THREE.Vector3();

@@ -5,6 +5,8 @@ import { createAstronaut, makeSpaceEnv } from '../world/astronaut.js';
 import { addHighlight, createDebris, createSatellite, createStationExterior, DEBRIS_KINDS } from '../world/stationExterior.js';
 import { consumeLook, input, moveIntent } from '../core/input.js';
 import { h, I, project } from '../ui/dom.js';
+import { createZeroG } from '../core/zeroG.js';
+import { mountSceneUi } from '../ui/sceneUi.js';
 
 // 장면 2 — 우주 유영 (자유 유영) / 장면 3 — 우주 쓰레기 수거 미션 (같은 우주 공간, 모드만 다름)
 let _glow;
@@ -22,7 +24,7 @@ function glowTex() {
   _glow = new THREE.CanvasTexture(c);
   return _glow;
 }
-const P = { max: 3.0, boostMax: 6.0, acc: 4.0, boostAcc: 8.0, damp: 0.6, soft: 60, hard: 80, reach: 3.0, hold: 1.2 };
+const P = { max: 3.0, boostMax: 6.0, acc: 4.0, boostAcc: 8.0, damp: 0.6, soft: 60, hard: 80, reach: 3.0, hold: 1.2, band: 22 };
 
 export function createEvaScene(ctx, opts = {}) {
   const mission = !!opts.mission;
@@ -118,10 +120,20 @@ export function createEvaScene(ctx, opts = {}) {
   fence.position.copy(station.airlockPos);
   scene.add(fence);
 
-  const vel = new THREE.Vector3();
-  const cam = { yaw: mission ? 0.35 : 0.62, pitch: 0.3, dist: 4.4 };
-  const st = { boost: 1, boostCool: 0, autopilot: false, offscreen: 0, collected: 0, time: 300, done: false, hold: 0, active: null, guide: true };
-  let hud, toastTimer;
+  // 무중력 조작: 누르면 상승 · 놓으면 그 높이에 떠 있기 · 높이 제한 · 360° 회전 (core/zeroG.js)
+  const zg = createZeroG({ speed: P.max, boostMul: P.boostMax / P.max, rise: 2.2, accel: 0.45, damp: 0.55, minY: station.airlockPos.y - P.band, maxY: station.airlockPos.y + P.band, soft: 3, camDist: 4.4 });
+  const faceYaw = (from) => Math.atan2(station.airlockPos.x - from.x, station.airlockPos.z - from.z);
+  zg.place(start, faceYaw(start));
+  const vel = zg.s.vel;
+  const st = { boost: 1, boostCool: 0, leaving: false, offscreen: 0, collected: 0, time: 300, done: false, hold: 0, active: null, guide: true, capWarn: 0 };
+  let hud, toastTimer, ui = null;
+  // 정거장 복귀: 중간 비행 없이 바로 에어록 안 안전 지점으로 (중복 클릭 방지)
+  function goBack() {
+    if (st.leaving) return;
+    st.leaving = true;
+    hud?.querySelector('[data-k="ret"]')?.setAttribute('disabled', '');
+    ctx.go('station', { id: 'airlock' });
+  }
 
   function buildHud() {
     hud = h(`<div>
@@ -144,27 +156,30 @@ export function createEvaScene(ctx, opts = {}) {
       <div class="glass toast" data-k="guide">관성 보조 켜짐 — 실제 우주에서는 손을 놓아도 저절로 멈추지 않아요 <span style="opacity:.6">(게임 연출)</span></div>
       <div class="bc pc-only"><div class="glass hint">
         <span><i class="kbd">W</i><i class="kbd">A</i><i class="kbd">S</i><i class="kbd">D</i> 이동</span>
-        <span><i class="kbd">Space</i>/<i class="kbd">E</i> 위로 · <i class="kbd">C</i>/<i class="kbd">Q</i> 아래로</span>
-        <span><i class="kbd">Shift</i> 부스트</span>${mission ? '' : '<span>드래그 시점</span>'}
+        <span><i class="kbd">Space</i> 상승 (놓으면 그 높이에 떠 있음) · <i class="kbd">C</i> 하강</span>
+        <span>드래그 · <i class="kbd">←</i><i class="kbd">↑</i><i class="kbd">↓</i><i class="kbd">→</i> 360° 회전</span><span><i class="kbd">X</i> 수평</span>
+        <span><i class="kbd">Shift</i> 부스트</span><span><i class="kbd">R</i> 정거장 복귀</span>${mission ? '<span><i class="kbd">F</i> 길게 눌러 수거</span>' : ''}
       </div></div>
       ${mission ? `<div class="br pc-only collect"><div class="glass prompt" data-k="prompt">가장 가까운 목표물로 이동하세요</div></div>` : ''}
-      <div class="joy mobile-only"><div class="joy-knob"></div></div>
-      <div class="act mobile-only">
-        ${mission ? `<div class="ring-prog" data-k="ring"><svg viewBox="0 0 86 86"><circle cx="43" cy="43" r="39" stroke="rgba(255,255,255,.18)" stroke-width="6" fill="none"/><circle data-k="arc" cx="43" cy="43" r="39" stroke="#6ff0d2" stroke-width="6" fill="none" stroke-dasharray="245" stroke-dashoffset="245" stroke-linecap="round"/></svg><button class="btn" data-k="collect" disabled>수거</button></div>` : ''}
-        <div style="display:flex;gap:10px">
-          <div style="display:grid;gap:10px"><button class="round" data-k="up">${I.up}</button><button class="round" data-k="down">${I.down}</button></div>
-          <button class="round big" data-k="boostb" style="align-self:end">${I.boost}<span class="sub">부스트</span></button>
-        </div>
-      </div>
+      <div class="alt-gauge" data-k="alt"><b>최대</b><i></i><span>최저</span></div>
     </div>`);
     ctx.hud.appendChild(hud);
-    ctx.mountJoystick(hud.querySelector('.joy'));
-    ctx.mountHold(hud.querySelector('[data-k="up"]'), 'up');
-    ctx.mountHold(hud.querySelector('[data-k="down"]'), 'down');
-    ctx.mountHold(hud.querySelector('[data-k="boostb"]'), 'boost');
-    const cb = hud.querySelector('[data-k="collect"]');
-    if (cb) ctx.mountHold(cb, 'act');
-    hud.querySelector('[data-k="ret"]').addEventListener('click', () => (st.autopilot = true));
+    ui = mountSceneUi(ctx, hud, {
+      here: mission ? 'mission' : 'eva',
+      room: 'eva',
+      chatTitle: '우주 유영 구역',
+      seed: [{ who: '안내', text: '유영 중에도 채팅할 수 있어요. 정거장 복귀는 오른쪽 위 버튼(R)', kind: 'sys' }],
+      npcs: ['루나'],
+      main: { k: 'up', icon: I.up, label: '상승', hold: 'up' },
+      extra: [
+        { k: 'down', icon: I.down, label: '하강', hold: 'down' },
+        { k: 'boostb', icon: I.boost, label: '부스트', hold: 'boost' },
+        mission ? { k: 'collect', icon: I.hand, label: '수거', hold: 'act', disabled: true } : { k: 'level', icon: I.level, label: '수평', onTap: () => zg.level() },
+      ],
+      aux: mission ? [{ k: 'level', icon: I.level, label: '수평', onTap: () => zg.level() }] : [],
+      speaker: (m) => (m.kind === 'me' ? { root: me.root, y: 1.98 } : null),
+    });
+    hud.querySelector('[data-k="ret"]').addEventListener('click', goBack);
     setTimeout(() => hud.querySelector('[data-k="guide"]')?.remove(), 9000);
     for (const tg of targets) {
       tg.el = h(`<div class="target"><span></span></div>`);
@@ -201,27 +216,10 @@ export function createEvaScene(ctx, opts = {}) {
     m.querySelector('[data-k="book"]').addEventListener('click', () => { m.remove(); toast('탐험 도감에 "우주 쓰레기" 카드가 기록됐어요 (시안)'); });
   }
 
-  const fwd = new THREE.Vector3(), right = new THREE.Vector3(), acc = new THREE.Vector3(), tmp = new THREE.Vector3();
-  function physics(dt) {
-    const mi = moveIntent();
-    fwd.set(-Math.sin(cam.yaw), 0, -Math.cos(cam.yaw));
-    right.set(-fwd.z, 0, fwd.x);
-    acc.set(0, 0, 0).addScaledVector(fwd, mi.y).addScaledVector(right, mi.x);
-    acc.y += mi.z;
-    if (acc.lengthSq() > 1) acc.normalize();
-    let boosting = mi.boost && st.boost > 0.02 && acc.lengthSq() > 0.01;
-    if (st.autopilot) {
-      const goal = tmp.copy(station.airlockPos).add(new THREE.Vector3(0, 0, 1.6));
-      const d = goal.clone().sub(me.root.position);
-      if (d.length() < 1.2) {
-        st.autopilot = false;
-        vel.set(0, 0, 0);
-        toast('정거장 복귀 완료 — 에어록에 도착했어요');
-        setTimeout(() => ctx.go('station'), 900);
-      }
-      acc.copy(d.normalize());
-      boosting = d.length() > 6;
-    }
+  const acc = new THREE.Vector3(), tmp = new THREE.Vector3();
+  function physics(dt, look) {
+    const s = zg.update(dt, look, { boostOk: st.boost > 0.02 });
+    const boosting = s.boosting;
     if (boosting) {
       st.boost = Math.max(0, st.boost - dt / 3);
       st.boostCool = 2;
@@ -229,28 +227,22 @@ export function createEvaScene(ctx, opts = {}) {
       st.boostCool -= dt;
       if (st.boostCool <= 0) st.boost = Math.min(1, st.boost + dt * 0.5);
     }
-    const a = boosting ? P.boostAcc : P.acc;
-    const vmax = boosting ? P.boostMax : P.max;
-    if (acc.lengthSq() > 0.0001) vel.addScaledVector(acc, a * dt);
-    else vel.multiplyScalar(Math.exp(-dt / P.damp)); // 관성 보조 (게임 보정)
-    if (vel.length() > vmax) vel.setLength(THREE.MathUtils.lerp(vel.length(), vmax, 1 - Math.exp(-dt * 6)));
-    me.root.position.addScaledVector(vel, dt);
+    const p = s.pos;
     // 정거장 충돌 (단순 구·캡슐)
     for (const c of station.colliders) {
-      tmp.copy(me.root.position).sub(c.c);
+      tmp.copy(p).sub(c.c);
       if (c.axis === 'x') tmp.x = Math.max(0, Math.abs(tmp.x) - c.half) * Math.sign(tmp.x);
       if (c.axis === 'z') tmp.z = Math.max(0, Math.abs(tmp.z) - c.half) * Math.sign(tmp.z);
       const d = tmp.length(), lim = c.r + 0.6;
       if (d < lim && d > 0.0001) {
         const n = tmp.divideScalar(d);
-        me.root.position.addScaledVector(n, lim - d);
+        p.addScaledVector(n, lim - d);
         const vn = vel.dot(n);
         if (vn < 0) vel.addScaledVector(n, -vn * 1.3);
       }
     }
     // 거주 링 (토러스) 충돌
     {
-      const p = me.root.position;
       const px = p.x + 2.5, rr = Math.hypot(p.y, p.z) || 1e-4;
       const q = new THREE.Vector3(px, (p.y / rr) * (rr - 15), (p.z / rr) * (rr - 15));
       const d = q.length(), lim = 1.6 + 0.6;
@@ -262,25 +254,18 @@ export function createEvaScene(ctx, opts = {}) {
       }
     }
     // 이동 반경 제한: 60 m부터 반발, 80 m에서 정지
-    const off = tmp.copy(me.root.position).sub(station.airlockPos);
+    const off = tmp.copy(p).sub(station.airlockPos);
     const dist = off.length();
     if (dist > P.soft) {
       vel.addScaledVector(off.normalize(), -(dist - P.soft) * 0.6 * dt);
-      if (dist > P.hard) me.root.position.copy(station.airlockPos).addScaledVector(off, P.hard);
+      if (dist > P.hard) p.copy(station.airlockPos).addScaledVector(off, P.hard);
     }
     fence.material.opacity = THREE.MathUtils.clamp((dist - P.soft + 15) / 15, 0, 1) * 0.25;
-    const thr = THREE.MathUtils.clamp(acc.length(), 0, 1) * (boosting ? 1 : 0.55);
-    me.state.thrust = THREE.MathUtils.lerp(me.state.thrust, thr, 1 - Math.exp(-dt * 6));
-    // 방향: 이동 중엔 진행 방향, 멈추면 카메라 쪽으로 반쯤 돌아보는 부유 포즈
-    const sp = vel.length();
-    let targetYaw;
-    if (sp > 0.25) targetYaw = Math.atan2(vel.x, vel.z);
-    else targetYaw = cam.yaw - 0.55;
-    let dy = targetYaw - me.root.rotation.y;
-    dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-    me.root.rotation.y += dy * Math.min(1, dt * (sp > 0.25 ? 4 : 1.2));
-    const pitchT = THREE.MathUtils.clamp(-vel.y * 0.12 + (sp > 0.25 ? 0.35 * Math.min(1, sp / 3) : 0), -0.5, 0.6);
-    me.root.rotation.x = THREE.MathUtils.lerp(me.root.rotation.x, pitchT, 1 - Math.exp(-dt * 3));
+    me.root.position.copy(p);
+    me.root.quaternion.copy(s.view);
+    me.state.thrust = s.thrust;
+    acc.copy(s.want);
+    if (acc.lengthSq() > 1e-4) acc.normalize();
     // 추진기 입자 방출
     if (me.state.thrust > 0.05) {
       const n = Math.ceil(me.state.thrust * 6);
@@ -304,7 +289,7 @@ export function createEvaScene(ctx, opts = {}) {
     }
     pGeo.attributes.position.needsUpdate = true;
     pGeo.attributes.life.needsUpdate = true;
-    return { dist, sp, boosting };
+    return { dist, sp: vel.length(), boosting };
   }
 
   function missionUpdate(dt) {
@@ -320,8 +305,7 @@ export function createEvaScene(ctx, opts = {}) {
     const holding = input.keys.has('f') || input.hold.act;
     if (st.active && holding) st.hold += dt;
     else st.hold = Math.max(0, st.hold - dt * 2);
-    const ring = hud.querySelector('[data-k="arc"]');
-    if (ring) ring.setAttribute('stroke-dashoffset', String(245 * (1 - Math.min(1, st.hold / P.hold))));
+    ui?.mc.setLabel('collect', st.active && st.hold > 0 ? `${Math.round((st.hold / P.hold) * 100)}%` : '수거');
     const cb = hud.querySelector('[data-k="collect"]');
     if (cb) cb.disabled = !st.active;
     const pr = hud.querySelector('[data-k="prompt"]');
@@ -358,10 +342,19 @@ export function createEvaScene(ctx, opts = {}) {
     camera,
     renderOpts: { exposure: 1.0, bloomStrength: 0.5, bloomThreshold: 1.0, bloomRadius: 0.55 },
     enter() {
-      me.setPreset(ctx.profile.preset);
+      me.applyProfile(ctx.profile);
+      st.leaving = false;
+      // 에어록을 나서는 위치에서 새로 시작 (정거장 쪽을 보고)
+      zg.place(start, faceYaw(start));
+      me.root.position.copy(start);
       buildHud();
+      window.__eva = {
+        state: () => ({ pos: zg.s.pos.toArray().map((v) => +v.toFixed(2)), vy: +zg.s.vel.y.toFixed(2), capped: zg.s.capped, q: zg.s.quat.toArray().map((v) => +v.toFixed(3)) }),
+        y: (v) => { zg.s.pos.y = v; },
+        rot: (yaw, pitch) => { zg.s.quat.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'))); },
+      };
     },
-    exit() { st.autopilot = false; },
+    exit() { st.leaving = false; },
     resize(w, hh) {
       camera.aspect = w / hh;
       camera.fov = w / hh < 0.8 ? 66 : 55;
@@ -369,11 +362,8 @@ export function createEvaScene(ctx, opts = {}) {
     },
     update(dt, t) {
       const look = consumeLook();
-      cam.yaw -= look.dx * 0.005;
-      cam.pitch = THREE.MathUtils.clamp(cam.pitch + look.dy * 0.004, -1.2, 1.2); // ±70°
-      cam.dist = THREE.MathUtils.clamp(cam.dist + look.zoom * 0.5, 2.5, 12);
-      if (input.pressed.has('r')) st.autopilot = true;
-      const ph = physics(dt);
+      if (input.pressed.has('r')) goBack();
+      const ph = physics(dt, look);
       me.state.mode = 'float';
       me.update(dt, t);
       station.update(t);
@@ -387,16 +377,10 @@ export function createEvaScene(ctx, opts = {}) {
         if (d.userData.highlight) d.userData.highlight.mat.opacity = 0.55 + Math.sin(t * 4) * 0.3;
       }
       missionUpdate(dt);
-      // 3인칭 카메라 (롤 고정, 상하 ±70°)
+      // 3인칭 추적 카메라: 아바타 자세를 따라 부드럽게 돌아 뒤집히지 않음
+      zg.camera(camera, dt, { height: 1.1, lookUp: 0.75, zoom: look.zoom, min: 2.5, max: 12 });
       const isM = ctx.isMobile();
-      const tgt = me.root.position.clone().add(new THREE.Vector3(0, 1.05, 0));
-      const d = cam.dist * (isM ? 1.3 : 1);
-      // 어깨 너머 시점: 캐릭터를 화면 왼쪽 1/3에 두어 정거장·지구가 잘 보이게 함 (모바일은 가운데)
-      const side = isM ? 0 : 1.15;
-      const rx = Math.cos(cam.yaw), rz = -Math.sin(cam.yaw);
-      camera.position.set(tgt.x + Math.sin(cam.yaw) * Math.cos(cam.pitch) * d + rx * side, tgt.y + Math.sin(cam.pitch) * d, tgt.z + Math.cos(cam.yaw) * Math.cos(cam.pitch) * d + rz * side);
-      camera.up.set(0, 1, 0);
-      camera.lookAt(tgt.x + rx * side, tgt.y + (isM ? 0.6 : 0.35), tgt.z + rz * side);
+      void isM;
       sky.position.copy(camera.position);
       stars.position.copy(camera.position);
       stars.material.uniforms.time.value = t;
@@ -407,6 +391,16 @@ export function createEvaScene(ctx, opts = {}) {
         hud.querySelector('[data-k="boost"]').style.width = `${Math.round(st.boost * 100)}%`;
         hud.querySelector('[data-k="dist"]').textContent = `${Math.round(ph.dist)} m${ph.dist > P.soft ? ' · 경계' : ''}`;
         hud.querySelector('[data-k="spd"]').textContent = `${ph.sp.toFixed(1)} m/s`;
+        const g = hud.querySelector('[data-k="alt"]');
+        if (g) {
+          const f = (zg.s.pos.y - zg.P.minY) / (zg.P.maxY - zg.P.minY);
+          g.querySelector('i').style.bottom = `${(f * 100).toFixed(1)}%`;
+          g.classList.toggle('max', zg.s.capped !== 0);
+        }
+        if (zg.s.capped && t - st.capWarn > 4) {
+          st.capWarn = t;
+          toast(zg.s.capped > 0 ? '최대 높이예요 — 더 올라갈 수 없어요' : '가장 낮은 높이예요 — 더 내려갈 수 없어요');
+        }
         // 길 잃음 방지: 정거장이 8초 이상 화면 밖이면 방향 화살표
         const sp = project(station.airlockPos, camera, w, hgt);
         const off = sp.behind || sp.x < 0 || sp.x > w || sp.y < 0 || sp.y > hgt;

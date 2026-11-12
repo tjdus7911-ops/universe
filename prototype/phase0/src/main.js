@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import './ui/hud.css';
 import { createRenderer, detectQuality } from './core/renderer.js';
-import { endFrame, installInput, mountHold, mountJoystick } from './core/input.js';
+import { endFrame, input, installInput, mountHold, mountJoystick } from './core/input.js';
 import { textureManager } from './world/earth.js';
 import { HAIRS, SKINS } from './world/astronaut.js';
+import { account } from './core/account.js';
+import { openTravel } from './ui/travel.js';
+import { initBubbles, updateBubbles, clearBubbles, bubbleCount } from './ui/bubbles.js';
 
 // 시안 내비게이터: 장면 목록 (순서 = 검토 순서)
 const SCENES = [
@@ -13,9 +16,8 @@ const SCENES = [
   { id: 'eva', label: '우주 유영', load: () => import('./scenes/eva.js').then((m) => m.createEvaScene) },
   { id: 'mission', label: '쓰레기 수거 미션', load: () => import('./scenes/eva.js').then((m) => (c) => m.createEvaScene(c, { mission: true })) },
   { id: 'lounge', label: '달 기지 라운지', load: () => import('./scenes/lounge.js').then((m) => m.createLoungeScene) },
-  { id: 'space', label: '우주 탐험 · 행성 발견', load: () => import('./scenes/space.js').then((m) => m.createSpaceScene) },
+  { id: 'space', label: '우주 탐험 · 아바타 비행', load: () => import('./scenes/space.js').then((m) => m.createSpaceScene) },
   { id: 'planet', label: '행성 정보', load: () => import('./scenes/planet.js').then((m) => m.createPlanetScene) },
-  { id: 'gravity', label: '중력 체험', load: () => import('./scenes/gravity.js').then((m) => m.createGravityScene) },
 ];
 
 const params = new URLSearchParams(location.search);
@@ -31,7 +33,7 @@ app.innerHTML = `
     <button id="hudt">HUD 숨기기</button>
   </div>
   <div id="viewport"><div id="stage">
-    <canvas id="gl"></canvas><div id="labels"></div><div id="hud"></div><div id="fade"></div>
+    <canvas id="gl"></canvas><div id="labels"></div><div id="bubbles"></div><div id="hud"></div><div id="fade"></div>
     <div id="loading">우주마을 시안을 불러오는 중…</div>
   </div></div>`;
 
@@ -42,8 +44,35 @@ let device = params.get('device') || (coarse && Math.min(innerWidth, innerHeight
 let qualityKey = params.get('q') || detectQuality();
 const R = createRenderer(canvas, qualityKey);
 installInput(canvas);
+initBubbles(document.getElementById('bubbles'));
 
 const profile = { name: '우주탐험가', preset: params.get('suit') || 'mint', skin: SKINS[0], hair: HAIRS[0] };
+// 진행 상태: 발견한 천체, 달 착륙 연출을 본 적 있는지 — 회원은 이 브라우저에 저장된다
+const progress = { discovered: new Set(['earth', 'moon']), seenIntro: false };
+function applySaved(data) {
+  if (!data) return;
+  const pf = data.profile || {};
+  if (pf.preset) profile.preset = pf.preset;
+  if (pf.skin) profile.skin = pf.skin;
+  if (pf.hair) profile.hair = pf.hair;
+  const pg = data.progress || {};
+  if (Array.isArray(pg.discovered)) pg.discovered.forEach((x) => progress.discovered.add(x));
+  if (pg.seenIntro) progress.seenIntro = true;
+}
+const restored = account.restore();
+if (restored) {
+  profile.name = restored.user.name;
+  applySaved(restored.data);
+}
+let saveTimer = 0;
+function persist() {
+  if (!account.isMember()) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => account.save({
+    profile: { preset: profile.preset, skin: profile.skin, hair: profile.hair },
+    progress: { discovered: [...progress.discovered], seenIntro: progress.seenIntro },
+  }), 250);
+}
 const ctx = {
   renderer: R,
   hud: document.getElementById('hud'),
@@ -56,8 +85,17 @@ const ctx = {
   mountHold: (el, k) => el && mountHold(el, k),
   go: (id, p) => go(id, p),
   params: {},
-  // 장면끼리 나누는 진행 상태 (시안: 새로고침하면 초기화)
-  progress: { discovered: new Set(['earth', 'moon']) },
+  // 장면끼리 나누는 진행 상태 (회원: 저장 · 비회원: 새로고침하면 초기화)
+  progress,
+  account,
+  persist,
+  applySaved,
+  travel: (here, opts) => openTravel(ctx, here, opts),
+  resetGuest() {
+    profile.name = '우주탐험가';
+    progress.discovered = new Set(['earth', 'moon']);
+    progress.seenIntro = false;
+  },
 };
 
 const cache = new Map();
@@ -74,18 +112,34 @@ async function getScene(id) {
 }
 
 async function go(id, p = {}) {
-  if (switching) return;
+  // 이동 중 중복 클릭 방지: 장면 전환이 끝날 때까지 다른 이동 요청은 무시
+  if (switching || !SCENES.some((x) => x.id === id)) return;
   switching = true;
   const fade = document.getElementById('fade');
+  let next;
+  try {
+    next = await getScene(id);
+  } catch (err) {
+    // 장면 파일을 못 불러오면 지금 화면을 그대로 두고 알린다
+    console.error(err);
+    switching = false;
+    ctx.hud.querySelector('.toast')?.remove();
+    const t = document.createElement('div');
+    t.className = 'toast glass';
+    t.textContent = '이동하지 못했어요. 잠시 뒤 다시 시도해 주세요';
+    ctx.hud.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+    return;
+  }
   if (current) {
     fade.classList.add('on');
-    await new Promise((r) => setTimeout(r, 380));
+    await new Promise((r) => setTimeout(r, current === next ? 120 : 260));
     current.exit?.();
   }
   ctx.hud.innerHTML = '';
   ctx.labels.innerHTML = '';
+  clearBubbles();
   ctx.params = p;
-  const next = await getScene(id);
   current = next;
   applyDevice();
   next.enter?.(p);
@@ -126,6 +180,7 @@ document.querySelectorAll('#dev button').forEach((b) => b.addEventListener('clic
     // HUD를 기기 레이아웃으로 다시 그림
     ctx.hud.innerHTML = '';
     ctx.labels.innerHTML = '';
+    clearBubbles();
     current.exit?.();
     current.enter?.(ctx.params);
   }
@@ -153,7 +208,10 @@ function loop() {
   const dt = Math.min(clock.getDelta(), 0.05);
   t += dt;
   if (current) {
+    // M: 어디서나 '이동' 메뉴 (시작·행성 정보 화면 제외)
+    if (input.pressed.has('m') && !['start', 'planet'].includes(current.id) && !ctx.hud.querySelector('.travel-menu')) ctx.travel(current.id);
     current.update(dt, t);
+    updateBubbles(current.camera, stage.clientWidth, stage.clientHeight);
     R.render(current.scene, current.camera, current.renderOpts);
     frames++;
     if (frames === 8) window.__ready = true;
@@ -180,3 +238,4 @@ textureManager.onLoad = () => { busy = false; };
 })();
 window.__go = go;
 window.__frames = () => frames;
+window.__bubbles = () => bubbleCount();

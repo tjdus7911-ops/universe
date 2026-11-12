@@ -182,23 +182,8 @@ export const GRAVITY = [
 export const JUMP_V0 = 2.4; // m/s — 세 천체 모두 같은 초기 속도
 export const GAME_TIME_SCALE = 1.0; // 게임 보정 없음
 
-// 달 기지 '달 과학 노트' — 게임 연출과 실제를 구분해 보여 준다.
-// kind: 'fact' = 출처 확인 값 · 'calc' = 출처 값으로 계산 · 'game' = 게임 연출(실제와 다름)
+// 달 장면에서 쓰는 지구 크기 값 (실제 겉보기 크기와 게임 연출 배율)
 const EARTH_EQ_R_KM = 6378.137; // NASA Earth Fact Sheet 적도 반지름
-const MOON_MEAN_R_KM = 1737.4; // NASA Moon Fact Sheet 평균 반지름
 const EARTH_MOON_KM = 384400; // NASA Moon Fact Sheet 장반경
 export const EARTH_GAME_SCALE = 2.5; // 달 장면 화면 속 지구 = 실제 겉보기 크기 × 2.5 (연출)
 export const EARTH_FROM_MOON_DEG = (2 * Math.atan(EARTH_EQ_R_KM / EARTH_MOON_KM) * 180) / Math.PI; // ≈ 1.90°
-const MOON_FROM_EARTH_DEG = (2 * Math.atan(MOON_MEAN_R_KM / EARTH_MOON_KM) * 180) / Math.PI; // ≈ 0.52°
-const horizonKm = (rKm, eyeM) => Math.sqrt(2 * rKm * 1000 * eyeM) / 1000;
-const jumpH = (g) => (JUMP_V0 * JUMP_V0) / (2 * g);
-export const MOON_NOTES = [
-  { k: '중력', v: '1.62 m/s² · 지구의 약 1/6', b: `같은 힘(초속 ${JUMP_V0} m)으로 뛰면 지구 ${jumpH(9.80665).toFixed(2)} m, 달 ${jumpH(1.62).toFixed(2)} m (계산)`, kind: 'calc', src: 'moon', verified: V },
-  { k: '망치와 깃털', v: '동시에 떨어져요', b: '아폴로 15호 데이비드 스콧이 마지막 월면 활동 끝에 TV 카메라 앞에서 지질 망치(1.32 kg)와 매 깃털을 함께 놓았고, 둘이 동시에 땅에 닿았어요', kind: 'fact', src: 'feather', verified: V },
-  { k: '먼지', v: '포물선으로 툭 떨어져요', b: '공기가 없어 먼지가 구름처럼 떠다니지 않고, 던진 공처럼 날아가 바로 떨어져요 (물리 원리)', kind: 'calc', src: null, verified: null },
-  { k: '발자국', v: '아주 오래 남아요', b: '바람과 비가 없어요. 1972년 아폴로 17호의 발자국 길이 지금도 궤도 사진에 보여요', kind: 'fact', src: 'prints', verified: V },
-  { k: '지구의 자리', v: '하늘에서 거의 움직이지 않아요', b: '달은 늘 같은 면을 지구로 향해요(조석 고정). 그래서 앞면에서 보면 지구가 뜨고 지지 않고 거의 한자리에 떠 있어요', kind: 'fact', src: 'tidal', verified: V },
-  { k: '지구 크기', v: `지름 약 ${EARTH_FROM_MOON_DEG.toFixed(1)}°`, b: `지구에서 본 보름달(약 ${MOON_FROM_EARTH_DEG.toFixed(2)}°)의 약 ${(EARTH_FROM_MOON_DEG / MOON_FROM_EARTH_DEG).toFixed(1)}배 (지구 적도 반지름·평균 거리로 계산). 게임 화면은 ${EARTH_GAME_SCALE}배로 키워 연출`, kind: 'game', src: 'moon', verified: V },
-  { k: '별', v: '사진에는 잘 안 찍혀요', b: '햇빛 받은 땅과 우주복에 맞춰 짧게 찍으면 어두운 별빛이 담기지 않아요. 게임은 분위기를 위해 별을 흐리게 보여 줘요', kind: 'game', src: 'stars', verified: V },
-  { k: '지평선', v: `약 ${horizonKm(MOON_MEAN_R_KM, 1.7).toFixed(1)} km`, b: `눈높이 1.7 m 기준 계산 (지구는 약 ${horizonKm(6371, 1.7).toFixed(1)} km). 달이 작아 지평선이 더 가까워요 — 게임 지형은 평평하게 단순화`, kind: 'calc', src: 'moon', verified: V },
-];

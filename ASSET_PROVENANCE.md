@@ -18,7 +18,9 @@
 
 | 대상 | 만든 방법 |
 |---|---|
-| 우주인·착륙선·월면차·달 기지·라운지·정거장·우주선 3D 모델 | three.js 기본 도형을 코드로 조합 (`src/world/*.js`, `src/scenes/*.js`) |
+| 우주인·착륙선·월면차(4인승)·달 기지·라운지·정거장·우주선 3D 모델 | three.js 기본 도형을 코드로 조합 (`src/world/*.js`, `src/scenes/*.js`) |
+| 물 마시기 연출(물주머니·물방울·헬멧 속 빨대) | three.js 기본 도형·재질을 코드로 조합 (`src/world/water.js`) |
+| 채팅 말풍선·위치 풍선·월면차 운전 막대 | HTML·CSS로 그림 (`src/ui/bubbles.js`, `src/ui/spots.js`, `src/ui/hud.css`) |
 | 달 지형·바위·발자국·먼지 | 코드로 생성 (`src/world/moonSurface.js`) |
 | `public/textures/earth_*.jpg/png` | world-atlas 육지 데이터를 래스터화하고 절차적 노이즈로 채색 (`tools/gen-land.mjs`, `tools/gen_textures.py`) |
 | `public/textures/moon*.jpg` | 절차적 노이즈로 생성 (`tools/gen_textures.py`) |
@@ -37,4 +39,6 @@
 
 ## 과학 자료
 
-행성 수치·달 과학 노트의 출처는 기획서 19장과 `prototype/phase0/src/data/planets.js`의 `SOURCES`에 링크와 함께 적혀 있습니다.
+행성 수치의 출처는 기획서 19장과 `prototype/phase0/src/data/planets.js`의 `SOURCES`에 링크와 함께 적혀 있습니다. 달 표면 물 마시기(헬멧 목 고리 안쪽 빨대)는 스미소니언 항공우주박물관의 아폴로 우주복 음료 장치 설명을 참고했습니다: https://airandspace.si.edu/collection-objects/drinking-device-suit/nasm_A19781916000
+
+이번 개선에서 새로 들어온 외부 파일·에셋은 없습니다.

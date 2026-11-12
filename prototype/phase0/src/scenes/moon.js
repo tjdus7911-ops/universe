@@ -5,8 +5,11 @@ import { createAstronaut, speechBubble } from '../world/astronaut.js';
 import { MOON_LAYOUT as LAY, createMoonTerrain, createMoonBase, createLander, createFootprints, createDust, makeMoonEnv, textSprite } from '../world/moonSurface.js';
 import { consumeLook, input, moveIntent } from '../core/input.js';
 import { h, I, project, coinsChip } from '../ui/dom.js';
-import { GRAVITY, JUMP_V0, SOURCES, MOON_NOTES, EARTH_FROM_MOON_DEG, EARTH_GAME_SCALE } from '../data/planets.js';
-import { mountEmotes, emoteFromKeys, EMOTES } from '../ui/emotes.js';
+import { GRAVITY, JUMP_V0, SOURCES, EARTH_FROM_MOON_DEG, EARTH_GAME_SCALE } from '../data/planets.js';
+import { emoteFromKeys, EMOTES } from '../ui/emotes.js';
+import { mountSceneUi } from '../ui/sceneUi.js';
+import { mountSpots } from '../ui/spots.js';
+import { createDrink } from '../world/water.js';
 
 // 장면 — 달 착륙지: 우주선에서 내리면 모두가 처음 만나는 울퉁불퉁한 달 언덕
 const G = GRAVITY.find((x) => x.id === 'moon').g; // 1.62 m/s²
@@ -128,8 +131,12 @@ export function createMoonScene(ctx) {
     b.bubble = speechBubble(d.say);
     b.bubble.position.set(0, 2.2, 0);
     a.root.add(b.bubble);
+    b.name = d.o.name;
+    b.chatT = 0;
     return b;
   });
+  // 물 마시기 (달 표면은 헬멧을 쓰고 있으니 우주복 안 음료 주머니의 빨대로)
+  const drink = createDrink(scene, me, { quality: ctx.renderer.quality.msaa >= 4 ? 'high' : 'medium' });
   const npc = (role) => npcs.find((n) => n.role === role);
   npc('hopper').bubble.visible = false;
 
@@ -255,7 +262,8 @@ export function createMoonScene(ctx) {
 
   // ---------- HUD ----------
   let mode = 'play'; // intro | play | photo
-  let hud = null, labels = [], prompt = null, nearKey = null, toastTimer = 0, jumpChipTimer = 0;
+  let hud = null, spotUi = null, prompt = null, nearKey = null, toastTimer = 0, jumpChipTimer = 0;
+  let ui = null;
   let introEl = null, firstLabel = null, firstLabelT = 0;
   let jumpQueued = false;
   let bestJump = 0;
@@ -265,7 +273,7 @@ export function createMoonScene(ctx) {
     ctx.hud.innerHTML = '';
     ctx.labels.innerHTML = '';
     hud = null;
-    labels = [];
+    spotUi = null;
     prompt = null;
   }
   function toast(html, ms = 3600) {
@@ -300,57 +308,61 @@ export function createMoonScene(ctx) {
       </div>
       <div class="mr">
         <button class="btn ghost side-btn" data-k="earth">${sizeLabel()}</button>
-        <button class="btn ghost side-btn" data-k="notes">${I.book}달 과학 노트</button>
         <div class="glass earth-cap" data-k="ecap" style="display:none"></div>
       </div>
       <div class="glass combo-pop" data-k="combo" style="display:none"></div>
       <div class="tc"><div class="glass jump-chip" data-k="jc" style="display:none"></div></div>
-      <div class="bl pc-only">
-        <div class="glass chat">
-          <div class="msg sys"><b>안내</b>달에서는 같은 힘으로 뛰어도 약 6배 높이 올라가요. Space로 점프!</div>
-          <div class="msg"><b>별헤는밤</b>어서 와! 달은 처음이지?</div>
-          <div class="msg"><b>코스모</b>Shift 누르고 깡충깡충 뛰면 훨씬 빨라 ㅋㅋ</div>
-          <div class="msg"><b>루나</b>단체 사진 찍을 사람~ 언덕 위 노란 원으로 모여!</div>
-          <div class="input">${I.chat}<span>Enter로 채팅 · 비회원은 빠른 채팅만</span></div>
-        </div>
-      </div>
       <div class="bc pc-only"><div class="glass hint">
         <span><i class="kbd">W</i><i class="kbd">A</i><i class="kbd">S</i><i class="kbd">D</i> 걷기</span>
-        <span><i class="kbd">Shift</i> 깡충 달리기</span><span><i class="kbd">Space</i> 점프</span><span><i class="kbd">E</i> 상호작용</span><span><i class="kbd">1</i>~<i class="kbd">7</i> 감정 표현</span><span>드래그 시점</span>
+        <span><i class="kbd">Shift</i> 깡충 달리기</span><span><i class="kbd">Space</i> 점프</span><span>풍선 클릭 · <i class="kbd">E</i> 바로 가기·실행</span><span><i class="kbd">1</i>~<i class="kbd">8</i> 감정 표현</span><span><i class="kbd">M</i> 이동</span><span><i class="kbd">Enter</i> 채팅</span><span>드래그 시점</span>
       </div></div>
       <div class="br pc-only"><div class="glass prompt" style="display:none"></div></div>
-      <div class="joy mobile-only"><div class="joy-knob"></div></div>
-      <div class="act mobile-only moon-act">
-        <button class="round" data-k="act">${I.hand}<span class="sub">관측</span></button>
-        <button class="round big" data-k="jump">${I.jump}<span class="sub">점프</span></button>
-      </div>
     </div>`);
     ctx.hud.appendChild(hud);
     prompt = hud.querySelector('.prompt');
-    ctx.mountJoystick(hud.querySelector('.joy'));
-    hud.querySelector('[data-k="act"]').addEventListener('click', () => interact());
-    const jb = hud.querySelector('[data-k="jump"]');
-    jb.addEventListener('pointerdown', (e) => { jumpQueued = true; jb.classList.add('is-down'); e.stopPropagation(); });
-    jb.addEventListener('pointerup', () => jb.classList.remove('is-down'));
-    jb.addEventListener('pointerleave', () => jb.classList.remove('is-down'));
     hud.querySelector('.icon-btn[title="미션"]').addEventListener('click', () => ctx.go('mission'));
     const eb = hud.querySelector('[data-k="earth"]');
-    eb.addEventListener('click', () => {
+    const toggleEarth = () => {
       earthTarget = earthTarget > 1.5 ? 1 : EARTH_GAME_SCALE;
       eb.innerHTML = sizeLabel();
       updateEarthCap(true);
+      if (ctx.isMobile()) toast(capText(), 4200);
+    };
+    eb.addEventListener('click', toggleEarth);
+    ui = mountSceneUi(ctx, hud, {
+      here: 'moon',
+      room: 'moon',
+      chatTitle: '달 착륙지 · 채널 1',
+      seed: [
+        { who: '안내', text: '달에서는 같은 힘으로 뛰어도 약 6배 높이 올라가요. Space로 점프!', kind: 'sys' },
+        { who: '별헤는밤', text: '어서 와! 달은 처음이지?' },
+        { who: '코스모', text: 'Shift 누르고 깡충깡충 뛰면 훨씬 빨라 ㅋㅋ' },
+        { who: '루나', text: '단체 사진 찍을 사람~ 언덕 위 노란 원으로 모여!' },
+      ],
+      npcs: ['별헤는밤', '코스모', '루나', '토끼발'],
+      main: { k: 'jump', icon: I.jump, label: '점프', hold: 'jump', onDown: () => { jumpQueued = true; } },
+      aux: [{ k: 'earth', icon: I.globe, label: '지구', onTap: toggleEarth }],
+      emote: (k) => pickEmote(k),
+      canDrink: true,
+      speaker: (m) => speakerOf(m),
     });
-    hud.querySelector('[data-k="notes"]').addEventListener('click', () => openNotes());
-    mountEmotes(hud.querySelector('.mr'), (k) => pickEmote(k));
-    ctx.mountHold(jb, 'jump');
     updateEarthCap();
-    labels = spots.map((s) => {
-      const el = h(`<div class="pill-label ${s.cls}"><i></i>${s.label}</div>`);
-      ctx.labels.appendChild(el);
-      return el;
-    });
+    // 위치 풍선: 누르면 그 앞으로 바로 이동해서 실행 (PC 클릭 · 모바일 탭)
+    spotUi = mountSpots(ctx, spots, (s) => goSpot(s));
+    if (mode === 'drive') { hud.classList.add('driving'); showDriveBar(); }
+  }
+  // 채팅 말풍선을 띄울 아바타: 나 또는 같은 이름의 NPC
+  function speakerOf(m) {
+    if (m.kind === 'me') return me.root;
+    const b = npcs.find((x) => x.name === m.who);
+    if (!b) return null;
+    b.chatT = Math.min(9, 4.2 + m.text.length * 0.09);
+    return b.av.root;
   }
   let capTimer = 0;
+  const capText = () => (earthTarget > 1.5
+    ? `<b>게임 연출</b> 지구를 실제보다 ${EARTH_GAME_SCALE}배 크게 보여 줘요`
+    : `<b>실제 크기</b> 지름 약 ${EARTH_FROM_MOON_DEG.toFixed(1)}° · 보름달의 약 3.7배`);
   function updateEarthCap(show) {
     const el = hud?.querySelector('[data-k="ecap"]');
     if (!el) return;
@@ -359,27 +371,7 @@ export function createMoonScene(ctx) {
       clearTimeout(capTimer);
       capTimer = setTimeout(() => (el.style.display = 'none'), 6000);
     }
-    el.innerHTML = earthTarget > 1.5
-      ? `<b>게임 연출</b> 지구를 실제보다 ${EARTH_GAME_SCALE}배 크게 보여 줘요`
-      : `<b>실제 크기</b> 지름 약 ${EARTH_FROM_MOON_DEG.toFixed(1)}° · 보름달의 약 3.7배`;
-  }
-
-  function openNotes() {
-    ctx.hud.querySelector('.info')?.remove();
-    const src = (k) => (k && SOURCES[k] ? `<a href="${SOURCES[k].url}" target="_blank" rel="noopener">${SOURCES[k].title}</a>` : '물리 원리 (출처 대조 예정)');
-    const chip = (n) => n.kind === 'game' ? '<span class="vchip game">게임 연출 포함</span>' : n.verified ? `<span class="vchip">검증 ${n.verified.slice(5)}</span>` : '<span class="vchip todo">검증 예정</span>';
-    const el = h(`<div class="info notes-panel"><div class="scroll">
-      <div class="head"><h2>달 과학 노트</h2><span class="en">MOON NOTES</span></div>
-      <div class="cat">실제 과학 · 계산 · 게임 연출을 구분해요</div>
-      <p class="intro">착륙지에서 해 본 것들이 실제 달에서는 어떤지 정리했어요.</p>
-      <div class="facts">${MOON_NOTES.map((n) => `<div class="fact wide"><div class="k">${n.k}${chip(n)}</div><div class="v">${n.v}</div><div class="b">${n.b}</div></div>`).join('')}</div>
-      <div class="src">출처: ${[...new Set(MOON_NOTES.map((n) => n.src).filter(Boolean))].map((k) => src(k)).join(' · ')}</div>
-    </div>
-    <div class="actions"><button class="btn ghost" data-k="close">닫기</button><button class="btn lav" data-k="grav">중력 비교실</button><button class="btn" data-k="moon">달 도감</button></div></div>`);
-    ctx.hud.appendChild(el);
-    el.querySelector('[data-k="close"]').addEventListener('click', () => el.remove());
-    el.querySelector('[data-k="grav"]').addEventListener('click', () => ctx.go('gravity'));
-    el.querySelector('[data-k="moon"]').addEventListener('click', () => ctx.go('planet', { id: 'moon' }));
+    el.innerHTML = capText();
   }
 
   function showJumpChip(b) {
@@ -393,22 +385,22 @@ export function createMoonScene(ctx) {
   }
 
   // ---------- 상호작용 ----------
-  function interact() {
+  function interact(key) {
     if (mode === 'drive') { stopDrive(); return; }
     if (mode === 'scope') { stopScope(); return; }
     if (mode !== 'play') return;
-    const k = nearKey;
+    const k = key || nearKey;
     if (!k) {
-      toast('가까이 가면 할 수 있는 일이 나타나요 · 언덕 위 노란 원은 단체 사진 자리');
+      toast('가고 싶은 곳의 풍선을 누르면 바로 가서 실행돼요 · 언덕 위 노란 원은 단체 사진 자리');
       return;
     }
+    if (k.startsWith('rover')) { startDrive(+k.slice(5)); return; }
     if (k === 'lander') openShipMenu();
     else if (k === 'hub') ctx.go('lounge');
     else if (k === 'photo') startPhoto();
     else if (k === 'hammer') startHammer();
-    else if (k === 'pole') ctx.go('gravity');
+    else if (k === 'pole') toast(`기둥 옆에서 점프하면 높이가 표시돼요 · 오늘 최고 <b>${bestJump.toFixed(2)} m</b> (같은 힘이면 지구에서는 약 ${((JUMP_V0 * JUMP_V0) / (2 * G_E)).toFixed(2)} m)`, 4600);
     else if (k === 'scope') startScope();
-    else if (k === 'rover') startDrive();
     else if (k === 'statue') toast('한국·중국·일본의 옛이야기에서는 달의 어두운 무늬를 방아 찧는 토끼로 보았어요 <span style="opacity:.6">(옛이야기)</span>');
   }
 
@@ -710,13 +702,13 @@ export function createMoonScene(ctx) {
     cam.yaw = -0.3;
     cam.pitch = 0.1;
     mode = 'play';
-    visited = true;
+    ctx.progress.seenIntro = true;
+    ctx.persist();
     npc('greeter').pos.copy(npc('greeter').home);
     buildHud();
     if (!firstLabel) markFirstStep(rampFootW.clone().add(new THREE.Vector3(dP.x * 0.4, 0, dP.y * 0.4)));
     toast('달에 도착! 달 중력은 지구의 약 1/6 — <b>Space</b>로 점프해 보세요');
   }
-  let visited = false;
 
   function markFirstStep(p) {
     if (firstLabel) scene.remove(firstLabel);
@@ -744,9 +736,64 @@ export function createMoonScene(ctx) {
   }
 
   // ---------- 다른 이용자 움직임 ----------
+  const seatW = new THREE.Vector3();
+  // 친구가 돌아갈 자리 (깡충 도는 친구는 원 위의 지금 자리)
+  const homeOf = (b) => (b.role === 'hopper' ? seatW.set(b.home.x + Math.cos(b.ang) * 4.0, 0, b.home.z + Math.sin(b.ang) * 4.0) : seatW.set(b.home.x, 0, b.home.z));
   function updateNpcs(dt, t) {
     for (const b of npcs) {
       b.near = camera.position.distanceTo(b.pos) < 5.5;
+      b.chatT = Math.max(0, b.chatT - dt);
+      if (b.script === 'board' || b.script === 'ride') {
+        // 월면차 타기: 달 중력으로 깡충 뛰어 빈자리에 앉고, 달리는 동안 좌석에 붙어 있음
+        const rv = RV.cur;
+        if (!rv || b.seat < 0) { b.script = 'return'; continue; }
+        rv.group.localToWorld(seatW.copy(rv.seats[b.seat]));
+        const root = b.av.root;
+        if (b.script === 'board') {
+          b.boardT += dt;
+          const k = Math.min(1, b.boardT / 1.15);
+          root.position.lerpVectors(b.boardFrom, seatW, k);
+          root.position.y += Math.sin(k * Math.PI) * 1.5;
+          root.rotation.set(0, Math.atan2(seatW.x - b.boardFrom.x, seatW.z - b.boardFrom.z), 0);
+          b.av.state.mode = 'air';
+          b.av.state.air = 1 - 2 * k;
+          if (k >= 1) b.script = 'ride';
+        } else {
+          root.position.copy(seatW);
+          root.quaternion.copy(rv.group.quaternion).multiply(SEAT_Q);
+          b.av.state.mode = 'sit';
+        }
+        b.av.state.flip = 0;
+        b.av.state.squash = 0;
+        b.pos.copy(root.position);
+        b.heading = RV.yaw + Math.PI / 2;
+        b.bubble.visible = false;
+        b.av.update(dt, t);
+        continue;
+      }
+      if (b.script === 'return') {
+        // 내린 뒤 원래 자리로 깡충깡충
+        const to = homeOf(b);
+        const dx = to.x - b.pos.x, dz = to.z - b.pos.z, d = Math.hypot(dx, dz);
+        if (d < 0.35 && b.ground) {
+          b.script = null;
+          b.vel.set(0, 0, 0);
+        } else {
+          const sp = Math.min(HOP_RUN, d * 2.5);
+          b.vel.set((dx / d) * sp, 0, (dz / d) * sp);
+          b.pos.x += b.vel.x * dt;
+          b.pos.z += b.vel.z * dt;
+          if (b.ground && d > 0.8) takeoff(b, HOP_V0, 'hop');
+          turnTo(b, Math.atan2(dx, dz), dt, 8);
+        }
+        stepBody(b, dt);
+        if (b.ground) b.av.state.mode = b.script ? 'walk' : 'idle';
+        b.av.state.speed = 1;
+        b.bubble.visible = false;
+        poseBody(b, dt);
+        b.av.update(dt, t);
+        continue;
+      }
       if (b.script === 'photo') {
         stepBody(b, dt);
         poseBody(b, dt);
@@ -807,7 +854,7 @@ export function createMoonScene(ctx) {
         b.av.state.mode = exp.state === 'done' ? 'cheer' : 'idle';
         b.bubble.visible = exp.state === 'idle';
       }
-      if (b.near) b.bubble.visible = false;
+      if (b.near || b.chatT > 0) b.bubble.visible = false;
       poseBody(b, dt);
       b.av.update(dt, t);
     }
@@ -907,6 +954,15 @@ export function createMoonScene(ctx) {
     if (mode !== 'play') return;
     const e = EMOTES.find((x) => x.k === k);
     if (!e) return;
+    if (k === 'drink') {
+      if (!P.ground) return;
+      P.vel.set(0, 0, 0);
+      P.emote = 'sip';
+      P.emoteT = e.dur;
+      drink.start({ g: G, suit: true });
+      toast('💧 헬멧은 그대로! 우주복 안 음료 주머니의 빨대로 마셔요 — 아폴로 달 탐사 우주복에도 헬멧 목 고리 안쪽에 빨대가 있었어요 · 흘린 물방울은 1/6 중력으로 천천히 떨어져요', 5200);
+      return;
+    }
     if (k === 'flip') {
       if (P.ground) takeoff(P, JUMP_V0, 'jump', { flip: true });
       return;
@@ -919,21 +975,9 @@ export function createMoonScene(ctx) {
 
   // ---------- 우주선 목적지 고르기 ----------
   function openShipMenu() {
-    ctx.hud.querySelector('.ship-menu')?.remove();
-    const el = h(`<div class="modal-wrap ship-menu"><div class="modal">
-      <div class="kicker">달마중호 · 어디로 갈까요?</div>
-      <h3>우주선 타고 출발</h3>
-      <div class="dest">
-        <button data-k="space"><b>🔭 우주 탐험</b><span>직접 우주선을 몰고 날아가 행성을 발견해요</span></button>
-        <button data-k="station"><b>🛰️ 궤도 정거장</b><span>창밖으로 거대한 지구 · 우주 유영 · 쓰레기 수거</span></button>
-      </div>
-      <div class="row-btn"><button class="btn ghost" data-k="close" style="color:#141b3d;background:#f2f3fb">달에 더 있을래요</button></div>
-    </div></div>`);
-    ctx.hud.appendChild(el);
-    el.querySelector('[data-k="space"]').addEventListener('click', () => ctx.go('space'));
-    el.querySelector('[data-k="station"]').addEventListener('click', () => ctx.go('station'));
-    el.querySelector('[data-k="close"]').addEventListener('click', () => el.remove());
+    ctx.travel('moon', { kicker: '달마중호 · 어디로 갈까요?', title: '우주선 타고 출발', stay: '달에 더 있을래요', only: ['station', 'space'] });
   }
+
 
   // ---------- 관측 망원경: 지구 가까이 보기 ----------
   const scopeCam = { el: null };
@@ -954,48 +998,143 @@ export function createMoonScene(ctx) {
     ctx.labels.style.display = '';
   }
 
-  // ---------- 월면차 운전 ----------
-  const RV = { g: base.rover.group, wheels: base.rover.wheels, speed: 0, yaw: base.rover.group.userData.yaw, steer: 0 };
-  function startDrive() {
-    mode = 'drive';
+  // ---------- 월면차 운전 (여러 대 · 4인승: 운전석 + 친구 3명) ----------
+  // 운영(PHASE 4)에서는 서버가 좌석을 배정한다: 빈자리가 없거나 너무 멀면 거절 (클라이언트가 보낸 좌석·위치를 그대로 믿지 않음)
+  const RV = { cur: null, speed: 0, yaw: 0, steer: 0, force: null, riders: [], bar: null };
+  const SEAT_Q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+  const RIDE_LINES = ['', '나도 탈래! 옆자리~', '뒷자리 내 거 🚙', '출발하자! 꽉 잡아'];
+  function startDrive(i = 0) {
+    const rv = base.rovers[i];
+    if (!rv) return;
+    if (mode === 'drive') stopDrive();
+    RV.cur = rv;
     RV.speed = 0;
+    RV.steer = 0;
+    RV.yaw = rv.group.userData.yaw;
+    RV.force = null;
+    RV.riders = [P, null, null, null];
+    mode = 'drive';
     P.emote = null;
+    drink.cancel();
     ctx.labels.style.display = 'none';
-    cam.dist = 8.5;
-    toast('월면차 운전! <b>W/S</b> 가속·후진 · <b>A/D</b> 방향 · <b>E</b> 내리기 — 바퀴 뒤 흙먼지가 포물선으로 떨어지는지 보세요', 5200);
+    cam.dist = 9.5;
+    hud?.classList.add('driving');
+    showDriveBar();
+    toast(ctx.isMobile()
+      ? '월면차 출발! 조이스틱으로 운전 · 위쪽 막대에서 <b>친구 태우기</b>(최대 4명)·<b>내리기</b>'
+      : '월면차 운전! <b>W/S</b> 가속·후진 · <b>A/D</b> 방향 · <b>F</b> 친구 태우기(최대 4명) · <b>E</b> 내리기', 5200);
     const pr = hud?.querySelector('.prompt');
-    if (pr) { pr.style.display = 'block'; pr.innerHTML = '<i class="kbd">E</i> 월면차에서 내리기'; }
+    if (pr) { pr.style.display = 'block'; pr.innerHTML = '<i class="kbd">F</i> 친구 태우기 · <i class="kbd">E</i> 월면차에서 내리기'; }
+  }
+  function showDriveBar() {
+    RV.bar?.remove();
+    if (!hud) return;
+    RV.bar = h(`<div class="drive-bar glass"><span>🚙 월면차</span><span class="seats" data-k="seats"></span><button class="btn ghost" data-k="board">친구 태우기</button><button class="btn" data-k="off">내리기</button></div>`);
+    hud.appendChild(RV.bar);
+    RV.bar.querySelector('[data-k="board"]').addEventListener('click', () => boardFriend());
+    RV.bar.querySelector('[data-k="off"]').addEventListener('click', () => stopDrive());
+    updateSeats();
+  }
+  function updateSeats() {
+    const el = RV.bar?.querySelector('[data-k="seats"]');
+    if (!el) return;
+    const n = RV.riders.filter(Boolean).length;
+    el.innerHTML = `${RV.riders.map((r) => `<i class="${r ? 'on' : ''}"></i>`).join('')}&nbsp;${n}/4`;
+    const b = RV.bar.querySelector('[data-k="board"]');
+    b.disabled = n >= 4;
+    b.textContent = n >= 4 ? '만석' : '친구 태우기';
+  }
+  // 가까운 친구(24 m 안)가 달 중력으로 깡충 뛰어 빈자리에 탄다
+  function boardFriend() {
+    if (mode !== 'drive' || !RV.cur) return;
+    const seat = RV.riders.indexOf(null);
+    if (seat < 0) {
+      toast('월면차는 최대 4명까지 탈 수 있어요 (운전석 포함)');
+      return;
+    }
+    const p = RV.cur.group.position;
+    const cand = npcs.filter((b) => !b.script).map((b) => ({ b, d: Math.hypot(b.pos.x - p.x, b.pos.z - p.z) })).sort((a, b) => a.d - b.d)[0];
+    if (!cand || cand.d > 24) {
+      toast('근처(24 m 안)에 태울 친구가 없어요 · 친구들 가까이로 몰고 가 보세요');
+      return;
+    }
+    const b = cand.b;
+    b.script = 'board';
+    b.seat = seat;
+    b.boardT = 0;
+    b.boardFrom = b.av.root.position.clone();
+    b.danceT = 0;
+    b.vel.set(0, 0, 0);
+    b.vy = 0;
+    b.flipping = false;
+    b.flip = 0;
+    b.emote = null;
+    b.bubble.visible = false;
+    RV.riders[seat] = b;
+    puff(b.pos.x, b.pos.y, b.pos.z, 12, 0.5, 0.6);
+    ui?.chat.npcSay(b.name, RIDE_LINES[seat]);
+    updateSeats();
+  }
+  // 내리기: 나는 운전석 옆, 친구들은 자기 자리 옆으로 내려서 원래 자리로 깡충깡충 돌아감
+  const offV = new THREE.Vector3();
+  function getOffAt(g, seat, out) {
+    g.localToWorld(out.set(seat.x, 0, Math.sign(seat.z || 1) * 1.75));
+    out.y = 0;
+    collide(out);
+    out.y = H(out.x, out.z);
+    return out;
   }
   function stopDrive() {
+    const rv = RV.cur;
     mode = 'play';
+    hud?.classList.remove('driving');
+    RV.bar?.remove();
+    RV.bar = null;
     ctx.labels.style.display = '';
     cam.dist = 6.4;
-    const side = new THREE.Vector3(0, 0, 1.6).applyQuaternion(RV.g.quaternion);
-    P.pos.set(RV.g.position.x + side.x, 0, RV.g.position.z + side.z);
-    P.pos.y = H(P.pos.x, P.pos.z);
+    if (!rv) return;
+    const g = rv.group;
+    getOffAt(g, rv.seats[0], P.pos);
     P.ground = true;
+    P.vy = 0;
     P.vel.set(0, 0, 0);
     P.heading = RV.yaw + Math.PI / 2;
     me.root.rotation.set(0, P.heading, 0);
+    RV.riders.forEach((b, k) => {
+      if (!b || b === P) return;
+      getOffAt(g, rv.seats[k], b.pos);
+      b.av.root.rotation.set(0, b.heading, 0);
+      b.ground = true;
+      b.vy = 0;
+      b.script = 'return';
+      b.seat = -1;
+    });
+    RV.riders = [];
     RV.force = null;
-    base.rover.sync();
-    const sp = spots.find((x) => x.key === 'rover');
-    sp.pos.set(RV.g.position.x, H(RV.g.position.x, RV.g.position.z) + 2.4, RV.g.position.z);
+    rv.sync();
+    const sp = spots.find((x) => x.key === `rover${rv.i}`);
+    if (sp) sp.pos.set(g.position.x, H(g.position.x, g.position.z) + 2.5, g.position.z);
+    RV.cur = null;
+    const pr = hud?.querySelector('.prompt');
+    if (pr) pr.style.display = 'none';
   }
   const tmpV = new THREE.Vector3();
   function updateDrive(dt) {
+    const rv = RV.cur;
+    if (!rv) return;
+    const RG = rv.group;
     const mi = moveIntent();
     const throttle = RV.force ? RV.force.t : mi.y, steer = RV.force ? RV.force.s : -mi.x;
     RV.speed += (throttle * (throttle > 0 ? 5.2 : 2.2) - RV.speed) * (1 - Math.exp(-dt * (Math.abs(throttle) > 0.05 ? 1.1 : 0.7)));
     RV.steer += (steer - RV.steer) * (1 - Math.exp(-dt * 6));
     RV.yaw += RV.steer * dt * 1.25 * Math.min(1, Math.abs(RV.speed) / 1.5) * Math.sign(RV.speed || 1);
     const fx = Math.cos(RV.yaw), fz = -Math.sin(RV.yaw);
-    const p = RV.g.position;
+    const p = RG.position;
     p.x += fx * RV.speed * dt;
     p.z += fz * RV.speed * dt;
-    // 다른 물체와 부딪힘 (월면차 자신의 충돌 원은 제외)
+    // 다른 물체·다른 월면차와 부딪힘 (지금 타고 있는 월면차의 충돌 원은 제외)
     for (const c of colliders) {
-      if (c.rover) continue;
+      if (c.rv === rv.i) continue;
       const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz), m = c.r + 1.35;
       if (d < m && d > 1e-4) {
         p.x = c.x + (dx / d) * m;
@@ -1006,16 +1145,17 @@ export function createMoonScene(ctx) {
     const rr = Math.hypot(p.x, p.z);
     if (rr > BOUND) { p.x *= BOUND / rr; p.z *= BOUND / rr; RV.speed *= 0.5; }
     p.y = H(p.x, p.z);
-    RV.g.userData.yaw = RV.yaw;
-    base.rover.tiltTo(RV.g, p.x, p.z, RV.yaw);
-    for (const w of RV.wheels) {
+    RG.userData.yaw = RV.yaw;
+    base.tiltTo(RG, p.x, p.z, RV.yaw);
+    rv.sync();
+    for (const w of rv.wheels) {
       w.axle.rotation.z -= (RV.speed * dt) / 0.42;
       if (w.front) w.axle.rotation.y = RV.steer * 0.4;
     }
     // 뒷바퀴 흙먼지: 공기가 없으니 연기처럼 퍼지지 않고 포물선으로 '툭'
     const sp = Math.abs(RV.speed);
     if (sp > 0.6) {
-      for (const w of RV.wheels) {
+      for (const w of rv.wheels) {
         if (w.front) continue;
         w.axle.getWorldPosition(tmpV);
         const n = Math.random() < sp / 6 ? 3 : 1;
@@ -1025,10 +1165,10 @@ export function createMoonScene(ctx) {
       }
     }
     // 운전석에 앉은 나
-    const seat = tmpV.set(-0.2, 0.58, 0.38);
-    RV.g.localToWorld(seat);
+    const seat = tmpV.copy(rv.seats[0]);
+    RG.localToWorld(seat);
     me.root.position.copy(seat);
-    me.root.quaternion.copy(RV.g.quaternion).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2));
+    me.root.quaternion.copy(RG.quaternion).multiply(SEAT_Q);
     me.state.mode = 'sit';
     me.state.flip = 0;
     P.pos.copy(seat);
@@ -1097,43 +1237,52 @@ export function createMoonScene(ctx) {
     }
   }
 
-  function updateLabels() {
-    if (mode !== 'play' || !labels.length) return;
-    const { w, hgt } = ctx.size();
-    const isM = ctx.isMobile();
-    nearKey = null;
-    let best = 1e9;
-    // 가까운 순서로 놓고, 화면에서 겹치면 먼 쪽 이름표는 숨긴다
-    const order = spots.map((s, i) => ({ s, i, dist: Math.hypot(s.pos.x - P.pos.x, s.pos.z - P.pos.z) })).sort((a, b) => a.dist - b.dist);
-    const placed = [];
-    for (const { s, i, dist } of order) {
-      const el = labels[i];
-      const pr = project(s.pos, camera, w, hgt);
-      const lw = s.label.length * 13 + 34;
-      let vis = !pr.behind && pr.x > -40 && pr.x < w + 40 && pr.y > 60 && dist < (isM ? 14 : 22);
-      if (vis) {
-        const box = { x0: pr.x - lw / 2, x1: pr.x + lw / 2, y0: pr.y - 34, y1: pr.y };
-        if (placed.some((b) => b.x0 < box.x1 && box.x0 < b.x1 && b.y0 < box.y1 && box.y0 < b.y1)) vis = false;
-        else placed.push(box);
-      }
-      el.style.display = vis ? 'flex' : 'none';
-      if (vis) {
-        el.style.left = `${pr.x}px`;
-        el.style.top = `${pr.y}px`;
-        el.style.opacity = dist < 10 ? '1' : '0.78';
-      }
-      if (dist < s.r && dist < best) {
-        best = dist;
-        nearKey = s.key;
-      }
+  // ---------- 위치 풍선: 누르면 그 앞으로 바로 이동해서 바로 실행 ----------
+  // 운영(PHASE 4)에서는 '어느 풍선으로 갈지'만 서버에 보내고, 서버가 같은 구역의 정해진 도착 지점으로 옮겨 준다 (좌표를 그대로 믿지 않음)
+  function goSpot(s) {
+    if (intro.on || photo.state !== 'idle') return;
+    if (mode === 'drive') stopDrive();
+    else if (mode === 'scope') stopScope();
+    if (mode !== 'play') return;
+    const tx = s.pos.x, tz = s.pos.z;
+    let dx = P.pos.x - tx, dz = P.pos.z - tz;
+    let d = Math.hypot(dx, dz);
+    if (d < 0.05) { dx = Math.sin(cam.yaw); dz = Math.cos(cam.yaw); d = 1; }
+    const stand = Math.min(d, Math.max(1.4, s.r * 0.55));
+    const moved = d - stand > 0.3;
+    P.pos.set(tx + (dx / d) * stand, 0, tz + (dz / d) * stand);
+    collide(P.pos);
+    collide(P.pos);
+    const r = Math.hypot(P.pos.x, P.pos.z);
+    if (r > BOUND) { P.pos.x *= BOUND / r; P.pos.z *= BOUND / r; }
+    P.pos.y = H(P.pos.x, P.pos.z);
+    P.vel.set(0, 0, 0);
+    P.vy = 0;
+    P.ground = true;
+    P.emote = null;
+    P.combo = 0;
+    P.flipping = false;
+    P.flip = 0;
+    drink.cancel();
+    P.heading = Math.atan2(tx - P.pos.x, tz - P.pos.z);
+    me.root.rotation.set(0, P.heading, 0);
+    poseBody(P, 0);
+    if (moved) {
+      cam.yaw = Math.atan2(P.pos.x - tx, P.pos.z - tz);
+      puff(P.pos.x, P.pos.y, P.pos.z, 16, 0.7, 0.55);
     }
+    nearKey = s.key;
+    interact(s.key);
+  }
+  const spotAct = (s) => (s.rover != null ? '월면차 타기 (최대 4명)' : s.act);
+  function updateLabels() {
+    if (mode !== 'play' || !spotUi) return;
+    nearKey = spotUi.layout(camera, P.pos, { max: ctx.isMobile() ? 60 : 80, minY: 56 });
     if (prompt) {
       const s = spots.find((x) => x.key === nearKey);
       prompt.style.display = s ? 'block' : 'none';
-      if (s) prompt.innerHTML = `<i class="kbd">E</i> ${s.act}`;
+      if (s) prompt.innerHTML = `<i class="kbd">E</i> ${spotAct(s)} <span style="opacity:.55;font-weight:600">· 풍선을 눌러도 돼요</span>`;
     }
-    const sub = hud?.querySelector('[data-k="act"] .sub');
-    if (sub) sub.textContent = nearKey ? spots.find((x) => x.key === nearKey).act.split(' ')[0] : '살펴보기';
   }
 
   const api = {
@@ -1142,14 +1291,14 @@ export function createMoonScene(ctx) {
     camera,
     renderOpts: { exposure: 0.9, bloomStrength: 0.3, bloomThreshold: 1.05, bloomRadius: 0.42 },
     enter(p = {}) {
-      me.setPreset(ctx.profile.preset);
+      me.applyProfile(ctx.profile);
       endPhotoQuiet();
       resetHammer();
       const id = p.id || '';
       ctx.labels.style.display = '';
       scopeCam.el = null;
       RV.force = null;
-      if (id === 'free' || id === 'photo' || id === 'hammer' || id === 'hub' || id === 'drive' || id === 'scope' || (visited && id !== 'intro')) {
+      if (id === 'free' || id === 'photo' || id === 'hammer' || id === 'hub' || id === 'drive' || id === 'scope' || (ctx.progress.seenIntro && id !== 'intro')) {
         placeFree();
         if (id === 'hub') {
           // 라운지에서 나오면 기지 문 앞
@@ -1163,7 +1312,7 @@ export function createMoonScene(ctx) {
         }
         if (id === 'drive') {
           P.pos.set(LAY.rover.x + 1.5, 0, LAY.rover.z + 1.2);
-          startDrive();
+          startDrive(0);
           RV.force = { t: 1, s: 0.22 };
         }
         if (id === 'scope') startScope();
@@ -1184,21 +1333,28 @@ export function createMoonScene(ctx) {
         cam: (yaw, pitch, dist) => { cam.yaw = yaw; cam.pitch = pitch; if (dist) cam.dist = dist; },
         place: (x, z, hd) => { P.pos.set(x, H(x, z), z); if (hd != null) P.heading = hd; },
         earth: () => hud?.querySelector('[data-k="earth"]')?.click(),
-        notes: () => openNotes(),
         photo: () => startPhoto(),
         hammer: () => startHammer(),
-        drive: (tq, st) => { if (mode !== 'drive') startDrive(); RV.force = tq == null ? null : { t: tq, s: st || 0 }; },
+        drive: (tq, st, i) => { if (mode !== 'drive') startDrive(i || 0); RV.force = tq == null ? null : { t: tq, s: st || 0 }; },
+        board: () => boardFriend(),
+        stopDrive: () => stopDrive(),
+        riders: () => RV.riders.map((r) => (r === P ? 'me' : r ? r.name : null)),
+        rovers: () => base.rovers.map((r) => [+r.group.position.x.toFixed(1), +r.group.position.z.toFixed(1)]),
+        goSpot: (key) => { const sp = spots.find((x) => x.key === key); if (sp) goSpot(sp); },
+        near: () => nearKey,
+        drinkState: () => ({ active: drink.active, drops: drink.count, mode: me.state.mode }),
         combo: () => { if (P.ground) comboJump(true); },
         comboAt: (n) => { P.combo = n - 1; P.kind = 'jump'; P.ground = true; comboJump(true); },
         emotePanel: () => hud?.querySelector('[data-k="emote"]')?.click(),
         emote: (k) => pickEmote(k),
-        state: () => ({ mode, t: intro.t, pos: P.pos.toArray(), prints: footprints.count }),
+        state: () => ({ mode, t: intro.t, pos: P.pos.toArray().map((v) => +v.toFixed(2)), heading: +P.heading.toFixed(2), prints: footprints.count }),
       };
     },
     exit() {
       endPhotoQuiet();
       if (mode === 'scope') stopScope();
       if (mode === 'drive') stopDrive();
+      drink.stop();
       clearTimeout(toastTimer);
       firstLabel && scene.remove(firstLabel);
       firstLabel = null;
@@ -1222,15 +1378,18 @@ export function createMoonScene(ctx) {
       } else if (mode === 'drive') {
         updateDrive(dt);
         me.update(dt, t);
+        if (input.pressed.has('f')) boardFriend();
         if (input.pressed.has('e')) interact();
       } else if (mode === 'scope') {
         me.update(dt, t);
         if (input.pressed.has('e') || input.pressed.has('escape')) stopScope();
       } else {
         updatePlayer(dt);
+        if (drink.active && P.emote !== 'sip') drink.cancel();
         me.update(dt, t);
         if (input.pressed.has('e')) interact();
       }
+      drink.update(dt, t);
       updateNpcs(dt, t);
       updateHammer(dt);
       dust.update(dt, G);

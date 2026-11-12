@@ -92,14 +92,16 @@ export function moveIntent() {
 export function mountJoystick(el) {
   const knob = el.querySelector('.joy-knob');
   let id = null;
-  let cx = 0, cy = 0;
-  const R = 46;
+  let cx = 0, cy = 0, R = 46, sc = 1;
   el.addEventListener('pointerdown', (e) => {
     id = e.pointerId;
     el.setPointerCapture(id);
     const r = el.getBoundingClientRect();
     cx = r.left + r.width / 2;
     cy = r.top + r.height / 2;
+    // 조이스틱 크기에 맞춘 이동 반경 (축소 표시된 기기 틀에서도 같은 비율)
+    sc = r.width / (el.offsetWidth || r.width);
+    R = (el.offsetWidth || 108) * 0.36 * sc;
     move(e);
     e.stopPropagation();
   });
@@ -123,7 +125,7 @@ export function mountJoystick(el) {
     input.joy.active = true;
     input.joy.x = dx / R;
     input.joy.y = -dy / R;
-    knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    knob.style.transform = `translate(calc(-50% + ${dx / sc}px), calc(-50% + ${dy / sc}px))`;
   }
 }
 
@@ -132,7 +134,7 @@ export function mountHold(el, key) {
   const on = (e) => {
     input.hold[key] = true;
     el.classList.add('is-down');
-    el.setPointerCapture?.(e.pointerId);
+    try { el.setPointerCapture?.(e.pointerId); } catch { /* 무시 */ }
     e.stopPropagation();
   };
   const off = () => {

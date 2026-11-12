@@ -7,6 +7,10 @@ import { createAstronaut, speechBubble } from '../world/astronaut.js';
 import { consumeLook, input, moveIntent } from '../core/input.js';
 import { h, I, project, coinsChip } from '../ui/dom.js';
 import { BODIES } from '../data/planets.js';
+import { mountSceneUi } from '../ui/sceneUi.js';
+import { EMOTES, emoteFromKeys } from '../ui/emotes.js';
+import { createDrink } from '../world/water.js';
+import { mountSpots } from '../ui/spots.js';
 
 // 장면 1 — 우주 정거장 중앙 광장: 거대한 지구 전망창
 export function createStationScene(ctx) {
@@ -47,6 +51,9 @@ export function createStationScene(ctx) {
   me.root.position.set(0.3, 0, -1.2);
   me.root.rotation.y = Math.PI;
   scene.add(me.root);
+  // 정거장 안은 궤도의 무중력 환경 — 물을 마시면 물이 공처럼 떠다닌다
+  const drink = createDrink(scene, me, { quality: ctx.renderer.quality.msaa >= 4 ? 'high' : 'medium' });
+  let emote = null, emoteT = 0;
   const npcs = [
     { o: { preset: 'lavender', skin: '#f6cba8', hair: '#2a2633', name: '별헤는밤' }, p: [-1.6, 0, -8.6], ry: Math.PI + 0.1, mode: 'idle', say: '지구 진짜 크다…!' },
     { o: { preset: 'coral', skin: '#e3ad86', hair: '#d9a05b', name: '코스모' }, p: [2.2, 0, -8.9], ry: Math.PI - 0.25, mode: 'idle' },
@@ -57,17 +64,18 @@ export function createStationScene(ctx) {
     a.root.rotation.y = n.ry;
     a.state.mode = n.mode;
     scene.add(a.root);
+    let bubble = null;
     if (n.say) {
-      const b = speechBubble(n.say);
-      b.position.set(0, 2.05, 0);
-      a.root.add(b);
+      bubble = speechBubble(n.say);
+      bubble.position.set(0, 2.05, 0);
+      a.root.add(bubble);
     }
-    return { a, n };
+    return { a, n, bubble, chatT: 0 };
   });
 
   const cam = { yaw: 0.0, pitch: 0.12, dist: 6.0 };
   const target = new THREE.Vector3();
-  let hud, labels = [], prompt, nearKey = null, toastTimer;
+  let hud, spotUi = null, prompt, nearKey = null, toastTimer;
   const HS = interior.hotspots;
   const spots = [
     { key: 'window', pos: HS.window, label: '지구 전망창', cls: '', act: '지구 관측하기', r: 3.2 },
@@ -92,37 +100,40 @@ export function createStationScene(ctx) {
         <button class="icon-btn pc-only" title="설정">${I.gear}</button>
         <button class="icon-btn mobile-only" title="더보기">${I.more}</button>
       </div>
-      <div class="bl pc-only">
-        <div class="glass chat">
-          <div class="msg sys"><b>안내</b>전망창 앞 초록 원에 서면 지구를 관측할 수 있어요.</div>
-          <div class="msg"><b>별헤는밤</b>지구 진짜 크다…!</div>
-          <div class="msg"><b>루나</b>같이 유영 갈래? 에어록 앞에서 만나</div>
-          <div class="msg me"><b>${ctx.profile.name}</b>좋아! 금방 갈게</div>
-          <div class="input">${I.chat}<span>Enter로 채팅 · 비회원은 빠른 채팅만</span></div>
-        </div>
       </div>
       <div class="bc pc-only"><div class="glass hint">
         <span><i class="kbd">W</i><i class="kbd">A</i><i class="kbd">S</i><i class="kbd">D</i> 걷기</span>
-        <span><i class="kbd">Shift</i> 달리기</span><span>마우스 드래그 시점</span><span><i class="kbd">E</i> 상호작용</span>
+        <span><i class="kbd">Shift</i> 달리기</span><span>마우스 드래그 시점</span><span>풍선 클릭 · <i class="kbd">E</i> 바로 가기·실행</span><span><i class="kbd">1</i>~<i class="kbd">8</i> 감정 표현</span><span><i class="kbd">M</i> 이동</span><span><i class="kbd">Enter</i> 채팅</span>
       </div></div>
-      <div class="joy mobile-only"><div class="joy-knob"></div></div>
-      <div class="act mobile-only">
-        <button class="round" data-k="chat">${I.chat}</button>
-        <button class="round big" data-k="act">${I.hand}<span class="sub">관측</span></button>
-      </div>
       <div class="br pc-only"><div class="glass prompt" style="display:none"></div></div>
     </div>`);
     ctx.hud.appendChild(hud);
     prompt = hud.querySelector('.prompt');
-    ctx.mountJoystick(hud.querySelector('.joy'));
-    hud.querySelector('[data-k="act"]').addEventListener('click', () => interact());
+    mountSceneUi(ctx, hud, {
+      here: 'station',
+      room: 'station',
+      chatTitle: '궤도 정거장 · 채널 3',
+      seed: [
+        { who: '안내', text: '전망창 앞 초록 원에 서면 지구를 관측할 수 있어요.', kind: 'sys' },
+        { who: '별헤는밤', text: '지구 진짜 크다…!' },
+        { who: '루나', text: '같이 유영 갈래? 에어록 앞에서 만나' },
+      ],
+      npcs: ['별헤는밤', '루나'],
+      emote: (k) => pickEmote(k),
+      canDrink: true,
+      // 채팅 말풍선: 나 또는 같은 이름의 친구
+      speaker: (m) => {
+        if (m.kind === 'me') return me.root;
+        const f = npcs.find((x) => x.n.o.name === m.who);
+        if (!f) return null;
+        f.chatT = Math.min(9, 4.2 + m.text.length * 0.09);
+        return f.a.root;
+      },
+    });
     hud.querySelector('.icon-btn[title="미션"]').addEventListener('click', () => ctx.go('mission'));
     hud.querySelector('.icon-btn[title="탐험 도감"]').addEventListener('click', () => toast(foundText()));
-    labels = spots.map((s) => {
-      const el = h(`<div class="pill-label ${s.cls}"><i></i>${s.label}</div>`);
-      ctx.labels.appendChild(el);
-      return el;
-    });
+    // 위치 풍선: 누르면 그 앞으로 바로 가서 실행
+    spotUi = mountSpots(ctx, spots, (s) => goSpot(s));
     void m;
   }
 
@@ -140,26 +151,57 @@ export function createStationScene(ctx) {
     return `탐험 도감: ${found.map((b) => b.ko).join('·')} <b>${found.length}/${BODIES.length}</b> 발견 · 행성 관측실에서 우주 탐험을 떠나 더 찾아보세요`;
   }
 
-  // 우주선 탑승장: 목적지 고르기 (달 착륙지 · 우주 탐험)
+  // 우주선 탑승장: 목적지 고르기 (달 착륙지 · 우주 탐험) — 공통 이동 메뉴 사용
   function openShipMenu() {
-    ctx.hud.querySelector('.ship-menu')?.remove();
-    const el = h(`<div class="modal-wrap ship-menu"><div class="modal">
-      <div class="kicker">우주선 탑승장 · 어디로 갈까요?</div>
-      <h3>우주선 타고 출발</h3>
-      <div class="dest">
-        <button data-k="moon"><b>🌙 달 착륙지</b><span>친구들이 모인 달 언덕 · 라운지 · 월면차</span></button>
-        <button data-k="space"><b>🔭 우주 탐험</b><span>직접 우주선을 몰고 날아가 행성을 발견해요</span></button>
-      </div>
-      <div class="row-btn"><button class="btn ghost" data-k="close" style="color:#141b3d;background:#f2f3fb">정거장에 더 있을래요</button></div>
-    </div></div>`);
-    ctx.hud.appendChild(el);
-    el.querySelector('[data-k="moon"]').addEventListener('click', () => ctx.go('moon', { id: 'free' }));
-    el.querySelector('[data-k="space"]').addEventListener('click', () => ctx.go('space'));
-    el.querySelector('[data-k="close"]').addEventListener('click', () => el.remove());
+    ctx.travel('station', { kicker: '우주선 탑승장 · 어디로 갈까요?', title: '우주선 타고 출발', stay: '정거장에 더 있을래요', only: ['moon', 'space'] });
   }
 
-  function interact() {
-    const k = nearKey || 'window';
+  // 감정 표현 (정거장 안 = 헬멧 없음 → 물 마시기 가능, 무중력이라 물이 둥둥 뜸)
+  function pickEmote(k) {
+    const e = EMOTES.find((x) => x.k === k);
+    if (!e) return;
+    if (k === 'flip') { toast('공중제비는 달이나 라운지에서 해 보세요'); return; }
+    vel.set(0, 0, 0);
+    emote = k;
+    emoteT = e.dur || 0;
+    if (k === 'drink') {
+      drink.start({ g: 0 });
+      toast('💧 무중력이라 물이 표면장력으로 공처럼 뭉쳐 둥둥 떠요 · 아래로 쏟아지지 않아요');
+    }
+  }
+  // 도착 위치: 에어록 복귀·다른 곳에서 이동해 오면 정해진 안전 지점에 서서 광장 쪽을 본다
+  function placeAt(hs, inset) {
+    const r = Math.hypot(hs.x, hs.z) || 1;
+    const k = Math.max(0, r - inset) / r;
+    me.root.position.set(hs.x * k, 0, hs.z * k);
+    me.root.rotation.y = Math.atan2(-hs.x, -hs.z);
+    vel.set(0, 0, 0);
+    // 카메라는 아바타 뒤(벽 쪽)에 두되 방 안에 들어오도록 거리를 줄이고 살짝 위에서 내려다봄
+    cam.yaw = Math.atan2(hs.x, hs.z);
+    cam.pitch = 0.3;
+    cam.dist = 4.4;
+  }
+
+
+  // 풍선을 누르면: 그 벽 앞 3 m(광장 쪽)에 서서 벽을 보고 바로 실행
+  function goSpot(s) {
+    const hs = s.pos;
+    const p = me.root.position;
+    if (Math.hypot(p.x - hs.x, p.z - hs.z) > s.r * 0.85) {
+      const r = Math.hypot(hs.x, hs.z) || 1;
+      const k = Math.max(0, r - 3.0) / r;
+      p.set(hs.x * k, 0, hs.z * k);
+      me.root.rotation.y = Math.atan2(hs.x, hs.z);
+      vel.set(0, 0, 0);
+      cam.yaw = Math.atan2(-hs.x, -hs.z);
+      cam.pitch = 0.22;
+    }
+    emote = null;
+    nearKey = s.key;
+    interact(s.key);
+  }
+  function interact(key) {
+    const k = key || nearKey || 'window';
     if (k === 'window') ctx.go('planet', { id: 'earth', from: 'station' });
     else if (k === 'board') ctx.go('mission');
     else if (k === 'airlock') ctx.go('eva');
@@ -172,7 +214,11 @@ export function createStationScene(ctx) {
   window.__station = {
     place: (x, z) => { me.root.position.set(x, me.root.position.y, z); },
     interact: () => interact(),
+    goSpot: (key) => { const sp = spots.find((x) => x.key === key); if (sp) goSpot(sp); },
     near: () => nearKey,
+    emote: (k) => pickEmote(k),
+    cam: (y, p, d) => { cam.yaw = y; cam.pitch = p; if (d) cam.dist = d; },
+    state: () => ({ pos: me.root.position.toArray().map((v) => +v.toFixed(2)), rotY: +me.root.rotation.y.toFixed(2), camYaw: +cam.yaw.toFixed(2), drops: drink.count }),
   };
 
   const vel = new THREE.Vector3();
@@ -208,9 +254,15 @@ export function createStationScene(ctx) {
     scene,
     camera,
     renderOpts: { exposure: 0.92, bloomStrength: 0.32, bloomThreshold: 1.05, bloomRadius: 0.45 },
-    enter() {
-      me.setPreset(ctx.profile.preset);
+    enter(p = {}) {
+      me.applyProfile(ctx.profile);
+      drink.stop();
+      emote = null;
+      if (p.id === 'airlock') placeAt(HS.airlock, 5.6);
+      else if (p.id === 'safe' || p.id === 'gate') placeAt(HS.gate, 5.6);
       buildHud();
+      if (p.id === 'airlock') toast('정거장 복귀 완료 — 에어록 앞 안전 구역이에요');
+      else if (p.id === 'safe' || p.id === 'gate') toast('궤도 정거장 도착 — 우주선 탑승장 앞이에요');
     },
     exit() {},
     resize(w, hh) {
@@ -224,7 +276,18 @@ export function createStationScene(ctx) {
       cam.pitch = THREE.MathUtils.clamp(cam.pitch + look.dy * 0.004, -0.05, 0.75);
       cam.dist = THREE.MathUtils.clamp(cam.dist + look.zoom * 0.6, 3.2, 11);
       movePlayer(dt);
+      const picked = emoteFromKeys(input.pressed);
+      if (picked) pickEmote(picked);
+      if (emote) {
+        if (vel.lengthSq() > 0.04) emote = null;
+        else {
+          me.state.mode = emote;
+          if (emoteT > 0 && (emoteT -= dt) <= 0) emote = null;
+        }
+      }
+      if (drink.active && emote !== 'drink') drink.cancel();
       me.update(dt, t);
+      drink.update(dt, t);
       for (const { a, n } of npcs) {
         if (n.mode === 'walk') {
           const ang = t * 0.25;
@@ -250,30 +313,17 @@ export function createStationScene(ctx) {
       earth.update(dt);
       earth.mesh.rotation.y += dt * 0.0004;
 
-      // 상호작용 지점 라벨 + 근접 안내
-      const { w, hgt } = ctx.size();
-      nearKey = null;
-      let best = 1e9;
-      spots.forEach((s, i) => {
-        const pr = project(s.pos, camera, w, hgt);
-        const el = labels[i];
-        const dist = s.pos.distanceTo(me.root.position.clone().setY(s.pos.y));
-        el.style.display = pr.behind || pr.x < -50 || pr.x > w + 50 ? 'none' : 'flex';
-        el.style.left = `${pr.x}px`;
-        el.style.top = `${pr.y}px`;
-        el.style.opacity = dist < 16 ? '1' : '0.75';
-        if (dist < s.r && dist < best) {
-          best = dist;
-          nearKey = s.key;
-        }
-      });
+      // 위치 풍선 + 근접 안내
+      nearKey = spotUi ? spotUi.layout(camera, me.root.position, { max: 40, minY: 50, farAt: 9 }) : null;
       if (prompt) {
         const s = spots.find((x) => x.key === nearKey);
         prompt.style.display = s ? 'block' : 'none';
-        if (s) prompt.innerHTML = `<i class="kbd">E</i> ${s.act}`;
+        if (s) prompt.innerHTML = `<i class="kbd">E</i> ${s.act} <span style="opacity:.55;font-weight:600">· 풍선을 눌러도 돼요</span>`;
       }
-      const sub = hud?.querySelector('[data-k="act"] .sub');
-      if (sub) sub.textContent = nearKey ? spots.find((x) => x.key === nearKey).act.split(' ')[0] : '관측';
+      for (const f of npcs) {
+        f.chatT = Math.max(0, f.chatT - dt);
+        if (f.bubble) f.bubble.visible = f.chatT <= 0;
+      }
       if (input.pressed.has('e') && nearKey) interact();
     },
   };

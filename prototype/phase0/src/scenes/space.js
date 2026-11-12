@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import { createSkyDome, createStarfield } from '../world/space.js';
 import { createPlanet } from '../world/planets.js';
-import { createShip } from '../world/ship.js';
-import { consumeLook, input, moveIntent } from '../core/input.js';
+import { createAstronaut } from '../world/astronaut.js';
+import { consumeLook, input } from '../core/input.js';
+import { createZeroG, createJetTrail } from '../core/zeroG.js';
+import { mountSceneUi } from '../ui/sceneUi.js';
 import { h, I, project } from '../ui/dom.js';
 import { byId } from '../data/planets.js';
 
-// 장면 — 우주 탐험: 내 우주선을 몰고 날아다니다가 가까이 가면 천체를 '발견'하고, 누르면 정보를 본다.
+// 장면 — 우주 탐험: 내 아바타(우주복)로 날아다니다가 가까이 가면 천체를 '발견'하고, 누르면 정보를 본다.
+// 이동은 게임형 무중력(core/zeroG.js): Space 상승·놓으면 그 높이에 떠 있기·C 하강·높이 제한·360° 회전
 // 교육용 축척: 크기와 거리를 크게 줄였다 (화면에 항상 표시)
 const SYSTEM = [
   { id: 'sun', r: 70, d: 0, a: 0, y: 0 },
@@ -19,7 +22,7 @@ const SYSTEM = [
   { id: 'uranus', r: 22, d: 1680, a: 158, y: -10 },
   { id: 'neptune', r: 21, d: 1980, a: 252, y: 12 },
 ];
-const CRUISE = 45, BOOST = 170;
+const CRUISE = 45, BOOST = 170, BAND = 220, SCALE = 2.4;
 
 export function createSpaceScene(ctx) {
   const scene = new THREE.Scene();
@@ -84,17 +87,19 @@ export function createSpaceScene(ctx) {
     scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: '#a69d92', size: 1.4, transparent: true, opacity: 0.85 })));
   }
 
-  // 내 우주선
-  const ship = createShip(ctx.profile);
-  scene.add(ship.group);
-  const S = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), quat: new THREE.Quaternion(), roll: 0 };
+  // 내 아바타 (우주복 + 헬멧) — 교육용 축척에 맞춰 크게 보이게 키움
+  const me = createAstronaut({ preset: ctx.profile.preset, skin: ctx.profile.skin, hair: ctx.profile.hair, name: ctx.profile.name, helmet: true });
+  me.setHelmet(true);
+  me.root.scale.setScalar(SCALE);
+  me.state.mode = 'float';
+  scene.add(me.root);
+  const jets = createJetTrail(scene, { n: 220, size: 120, life: 1.4 });
+  const zg = createZeroG({ speed: CRUISE, boostMul: BOOST / CRUISE, rise: 28, accel: 0.55, damp: 0.6, minY: -BAND, maxY: BAND, soft: 30, lean: 0.35, camDist: 12, zoomStep: 1.4 });
+  const S = zg.s;
   function placeStart() {
-    S.pos.copy(earthB.pos).add(new THREE.Vector3(-26, 8, 46));
-    S.vel.set(0, 0, 0);
-    cam.yaw = Math.atan2(-(earthB.pos.x - S.pos.x), -(earthB.pos.z - S.pos.z)) + 0.5;
-    cam.pitch = 0.12;
+    const p = earthB.pos.clone().add(new THREE.Vector3(-26, 8, 46));
+    zg.place(p, Math.atan2(earthB.pos.x - p.x, earthB.pos.z - p.z));
   }
-  const cam = { yaw: 0, pitch: 0.12, dist: 15 };
   placeStart();
 
   // HUD
@@ -111,35 +116,49 @@ export function createSpaceScene(ctx) {
   function buildHud() {
     hud = h(`<div>
       <div class="tl">
-        <div class="glass chip"><span class="dot" style="background:var(--lavender);box-shadow:0 0 10px var(--lavender)"></span>우주 탐험 · 달마중호 <small>행성을 찾아 날아가요</small></div>
+        <div class="glass chip"><span class="dot" style="background:var(--lavender);box-shadow:0 0 10px var(--lavender)"></span>우주 탐험 · ${ctx.profile.name} <small>행성을 찾아 날아가요</small></div>
         <button class="glass chip found" data-k="found">${I.book}<b data-k="cnt">${countText()}</b></button>
       </div>
       <div class="tc"><div class="scale-badge">교육용 축척 — 실제 거리·크기와 많이 달라요</div></div>
       <div class="tr">
-        <button class="btn return" data-k="moon">${I.home}<b>달 착륙지</b></button>
+        <button class="btn return" data-k="station">${I.home}<b>정거장 복귀</b></button>
+        <button class="btn return pc-only" data-k="moon"><b>🌙 달</b></button>
       </div>
       <div class="br pc-only"><div class="glass stat-col">
         <div class="r"><span>속도</span><b data-k="spd">0</b></div>
         <div class="r"><span>가장 가까운 천체</span><b data-k="near">-</b></div>
-        <div class="r"><span>부스트</span><b>Shift</b></div>
+        <div class="r"><span>높이</span><b data-k="alt-t">0</b></div>
       </div></div>
       <div class="bc pc-only"><div class="glass hint">
-        <span><i class="kbd">W</i><i class="kbd">A</i><i class="kbd">S</i><i class="kbd">D</i> 비행</span>
-        <span><i class="kbd">Space</i>/<i class="kbd">C</i> 위·아래</span><span><i class="kbd">Shift</i> 부스트</span><span>드래그 시점</span><span>발견한 천체 클릭 · <i class="kbd">E</i> 정보</span>
+        <span><i class="kbd">W</i><i class="kbd">A</i><i class="kbd">S</i><i class="kbd">D</i> 이동</span>
+        <span><i class="kbd">Space</i> 상승 (놓으면 그 높이에 떠 있음) · <i class="kbd">C</i> 하강</span>
+        <span>드래그 · <i class="kbd">←</i><i class="kbd">↑</i><i class="kbd">↓</i><i class="kbd">→</i> 360° 회전</span><span><i class="kbd">X</i> 수평</span><span><i class="kbd">Shift</i> 부스트</span><span>발견한 천체 클릭 · <i class="kbd">E</i> 정보</span>
       </div></div>
-      <div class="joy mobile-only"><div class="joy-knob"></div></div>
-      <div class="act mobile-only">
-        <div style="display:flex;gap:12px;align-items:flex-end">
-          <div style="display:grid;gap:10px"><button class="round" data-k="up">${I.up}</button><button class="round" data-k="down">${I.down}</button></div>
-          <button class="round big" data-k="boostb">${I.boost}<span class="sub">부스트</span></button>
-        </div>
-      </div>
+      <div class="alt-gauge" data-k="alt"><b>최대 높이</b><i></i><span>최저</span></div>
     </div>`);
     ctx.hud.appendChild(hud);
-    ctx.mountJoystick(hud.querySelector('.joy'));
-    ctx.mountHold(hud.querySelector('[data-k="up"]'), 'up');
-    ctx.mountHold(hud.querySelector('[data-k="down"]'), 'down');
-    ctx.mountHold(hud.querySelector('[data-k="boostb"]'), 'boost');
+    mountSceneUi(ctx, hud, {
+      here: 'space',
+      room: 'space',
+      chatTitle: '우주 탐험',
+      seed: [{ who: '안내', text: '가까이 날아가면 천체가 발견돼요. 화면 가장자리 화살표가 미확인 신호!', kind: 'sys' }],
+      npcs: [],
+      main: { k: 'up', icon: I.up, label: '상승', hold: 'up' },
+      extra: [
+        { k: 'down', icon: I.down, label: '하강', hold: 'down' },
+        { k: 'boostb', icon: I.boost, label: '부스트', hold: 'boost' },
+        { k: 'level', icon: I.level, label: '수평', onTap: () => zg.level() },
+      ],
+      aux: [{ k: 'found', icon: I.book, label: '도감', onTap: () => openFound() }],
+      speaker: (m) => (m.kind === 'me' ? { root: me.root, y: 1.98 } : null),
+    });
+    const back = hud.querySelector('[data-k="station"]');
+    back.addEventListener('click', () => {
+      // 정거장 복귀: 중간 화면 없이 바로, 두 번 눌러도 한 번만
+      if (back.disabled) return;
+      back.disabled = true;
+      ctx.go('station', { id: 'safe' });
+    });
     hud.querySelector('[data-k="moon"]').addEventListener('click', () => ctx.go('moon', { id: 'free' }));
     hud.querySelector('[data-k="found"]').addEventListener('click', () => openFound());
     arrow = h('<div class="signal-edge" style="display:none"><i></i><span>미확인 신호</span></div>');
@@ -172,6 +191,7 @@ export function createSpaceScene(ctx) {
   }
   function discover(b) {
     progress.discovered.add(b.id);
+    ctx.persist();
     const cnt = hud?.querySelector('[data-k="cnt"]');
     if (cnt) cnt.textContent = countText();
     toast(`🔭 새 천체 발견! <b>${byId[b.id].ko}</b> — 눌러서 정보 보기`, 4200);
@@ -199,16 +219,24 @@ export function createSpaceScene(ctx) {
     renderOpts: { exposure: 1.0, bloomStrength: 0.55, bloomThreshold: 0.9, bloomRadius: 0.5 },
     enter(p = {}) {
       active = true;
-      ship.pilot.setPreset(ctx.profile.preset);
-      if (p.id === 'start' || !S.started) {
+      me.applyProfile(ctx.profile);
+      if (p.near && all.some((x) => x.id === p.near)) {
+        S.started = true;
+        const b = all.find((x) => x.id === p.near);
+        const q = b.pos.clone().add(new THREE.Vector3(b.r * 1.6 + 18, b.r * 0.5 + 4, b.r * 1.6 + 18));
+        zg.place(q, Math.atan2(b.pos.x - q.x, b.pos.z - q.z) - 0.35);
+      } else if (p.id === 'start' || !S.started) {
         S.started = true;
         placeStart();
       }
       buildHud();
       window.__space = {
-        near: (bid) => { const b = all.find((x) => x.id === bid); S.pos.copy(b.pos).add(new THREE.Vector3(b.r * 1.6 + 18, b.r * 0.5 + 4, b.r * 1.6 + 18)); S.vel.set(0, 0, 0); cam.yaw = Math.atan2(S.pos.x - b.pos.x, S.pos.z - b.pos.z) + 0.35; cam.pitch = 0.1; },
+        near: (bid) => { const b = all.find((x) => x.id === bid); const q = b.pos.clone().add(new THREE.Vector3(b.r * 1.6 + 18, b.r * 0.5 + 4, b.r * 1.6 + 18)); zg.place(q, Math.atan2(b.pos.x - q.x, b.pos.z - q.z) - 0.35); },
+        state: () => ({ pos: S.pos.toArray().map((v) => +v.toFixed(2)), vel: +S.vel.length().toFixed(2), capped: S.capped, q: S.quat.toArray().map((v) => +v.toFixed(3)) }),
+        rot: (yaw, pitch) => { zg.s.quat.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'))); },
         found: () => openFound(),
         fly: (x, z) => { S.vel.set(x, 0, z); },
+        y: (v) => { S.pos.y = v; },
       };
       toast(S.welcomed ? '탐험을 계속해요 · 화면 가장자리 화살표가 미확인 신호예요' : '지구 곁에서 출발! 화면 가장자리의 <b>신호 화살표</b>를 따라가면 새 천체를 발견할 수 있어요', 4800);
       S.welcomed = true;
@@ -224,21 +252,7 @@ export function createSpaceScene(ctx) {
     },
     update(dt, t) {
       const look = consumeLook();
-      cam.yaw -= look.dx * 0.005;
-      cam.pitch = THREE.MathUtils.clamp(cam.pitch + look.dy * 0.004, -1.2, 1.2);
-      cam.dist = THREE.MathUtils.clamp(cam.dist + look.zoom * 1.2, 8, 40);
-      // 카메라 기준 이동 (앞·옆·위)
-      const mi = moveIntent();
-      fwd.set(-Math.sin(cam.yaw) * Math.cos(cam.pitch), -Math.sin(cam.pitch), -Math.cos(cam.yaw) * Math.cos(cam.pitch)).normalize();
-      right.set(Math.cos(cam.yaw), 0, -Math.sin(cam.yaw));
-      const keys = input.keys;
-      const vert = (keys.has(' ') || input.hold.up ? 1 : 0) - (keys.has('c') || input.hold.down ? 1 : 0);
-      const want = tmp.set(0, 0, 0).addScaledVector(fwd, mi.y).addScaledVector(right, mi.x).addScaledVector(up, vert);
-      const boosting = mi.boost && want.lengthSq() > 0.01;
-      if (want.lengthSq() > 1) want.normalize();
-      want.multiplyScalar(boosting ? BOOST : CRUISE);
-      S.vel.lerp(want, 1 - Math.exp(-dt * (want.lengthSq() > 0 ? 1.6 : 0.9)));
-      S.pos.addScaledVector(S.vel, dt);
+      zg.update(dt, look);
       // 천체와 부딪히지 않기 + 태양 너무 가까이 가지 않기
       let nearest = null, nd = 1e9;
       for (const b of all) {
@@ -260,31 +274,31 @@ export function createSpaceScene(ctx) {
         beltWarned = true;
         toast('소행성대 통과 중! 실제 소행성대는 소행성 사이가 아주 멀어서 이렇게 빽빽하지 않아요 <span style="opacity:.6">(게임 연출)</span>', 5200);
       }
-      if (rr > 2300) S.pos.multiplyScalar(2300 / rr);
-      // 우주선 방향: 진행 방향을 바라보고, 옆으로 돌 때 살짝 기울기
+      if (rr > 2300) { S.pos.x *= 2300 / rr; S.pos.z *= 2300 / rr; }
       const sp = S.vel.length();
-      if (sp > 0.5) {
-        const look2 = tmp.copy(S.pos).add(S.vel);
-        const m = new THREE.Matrix4().lookAt(look2, S.pos, up);
-        const q = new THREE.Quaternion().setFromRotationMatrix(m);
-        S.quat.slerp(q, 1 - Math.exp(-dt * 4));
-        const side = S.vel.dot(right) / Math.max(sp, 1);
-        S.roll += (-side * 0.5 - S.roll) * (1 - Math.exp(-dt * 3));
-      }
-      ship.group.position.copy(S.pos);
-      ship.group.quaternion.copy(S.quat).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), S.roll));
-      ship.setThrust(Math.min(1, sp / BOOST + (boosting ? 0.4 : 0)), t);
-      ship.update(dt, t);
-      // 카메라: 우주선 뒤 3인칭
-      const d = cam.dist * (ctx.isMobile() ? 1.15 : 1);
-      camera.position.set(
-        S.pos.x + Math.sin(cam.yaw) * Math.cos(cam.pitch) * d,
-        S.pos.y + Math.sin(cam.pitch) * d + 2.2,
-        S.pos.z + Math.cos(cam.yaw) * Math.cos(cam.pitch) * d,
-      );
-      camera.lookAt(S.pos.x, S.pos.y + 1.4, S.pos.z);
+      me.root.position.copy(S.pos);
+      me.root.quaternion.copy(S.view);
+      me.state.mode = 'float';
+      me.state.thrust = S.thrust;
+      me.update(dt, t);
+      if (S.thrust > 0.05) jets.emit(me.nozzles, tmp.copy(S.want).normalize(), S.vel, S.thrust, SCALE * 2.2);
+      jets.update(dt);
+      // 3인칭 추적 카메라 (아바타를 따라 회전, 뒤집혀도 튀지 않음)
+      zg.camera(camera, dt, { height: 2.6, lookUp: 1.9, zoom: look.zoom, min: 7, max: 40 });
       fill.position.copy(camera.position);
       fill.target.position.copy(S.pos);
+      // 높이 게이지 + 최대 높이 안내
+      const g = hud?.querySelector('[data-k="alt"]');
+      if (g) {
+        g.querySelector('i').style.bottom = `${(((S.pos.y + BAND) / (2 * BAND)) * 100).toFixed(1)}%`;
+        g.classList.toggle('max', S.capped !== 0);
+      }
+      const at = hud?.querySelector('[data-k="alt-t"]');
+      if (at) at.textContent = `${S.pos.y.toFixed(0)} / ±${BAND}`;
+      if (S.capped && t - (S.capWarn || 0) > 4) {
+        S.capWarn = t;
+        toast(S.capped > 0 ? '최대 높이예요 — 더 올라갈 수 없어요 (교육용 탐험 구역)' : '가장 낮은 높이예요 — 더 내려갈 수 없어요');
+      }
       sky.position.copy(camera.position);
       stars.position.copy(camera.position);
       stars.material.uniforms.time.value = t;

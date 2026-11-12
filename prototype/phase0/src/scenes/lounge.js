@@ -7,7 +7,10 @@ import { canvasTexture, FONT, roundRect } from '../core/renderer.js';
 import { consumeLook, input, moveIntent } from '../core/input.js';
 import { h, I, project, coinsChip } from '../ui/dom.js';
 import { byId, GRAVITY, JUMP_V0 } from '../data/planets.js';
-import { mountEmotes, emoteFromKeys, EMOTES } from '../ui/emotes.js';
+import { emoteFromKeys, EMOTES } from '../ui/emotes.js';
+import { mountSceneUi } from '../ui/sceneUi.js';
+import { createDrink } from '../world/water.js';
+import { mountSpots } from '../ui/spots.js';
 
 // 장면 — 달 기지 라운지 (실내): 상점 · 탐험 도감 벽 · 우주선 꾸미기 코너 · 창가 소파
 const G = GRAVITY.find((x) => x.id === 'moon').g;
@@ -315,6 +318,7 @@ export function createLoungeScene(ctx) {
   // 나 + 친구 둘
   const me = createAstronaut({ preset: ctx.profile.preset, skin: ctx.profile.skin, hair: ctx.profile.hair, name: ctx.profile.name });
   scene.add(me.root);
+  const drink = createDrink(scene, me, { quality: ctx.renderer.quality.msaa >= 4 ? 'high' : 'medium' });
   const P = { pos: new THREE.Vector3(0, 0, 7.4), vel: new THREE.Vector3(), vy: 0, ground: true, heading: Math.PI, emote: null, emoteT: 0, flip: 0, flipping: false, airT: 0, airDur: 1, squash: 0 };
   const dancer = createAstronaut({ preset: 'coral', skin: '#e3ad86', hair: '#d9a05b', name: '코스모' });
   dancer.root.position.set(0.6, 0, -0.4);
@@ -331,7 +335,8 @@ export function createLoungeScene(ctx) {
   colliders.push({ x: 0.6, z: -0.4, r: 0.5 });
 
   // HUD
-  let hud = null, labels = [], prompt = null, nearKey = null, toastTimer = 0, jumpQueued = false, sitting = false;
+  let hud = null, spotUi = null, prompt = null, nearKey = null, toastTimer = 0, jumpQueued = false, sitting = false;
+  let chatT = { dancer: 0 };
   function toast(html, ms = 3400) {
     ctx.hud.querySelector('.toast')?.remove();
     const t = h(`<div class="toast glass">${html}</div>`);
@@ -352,35 +357,63 @@ export function createLoungeScene(ctx) {
         <button class="icon-btn mobile-only" title="더보기">${I.more}</button>
       </div>
       <div class="mr"><button class="btn ghost side-btn" data-k="exit">${I.home}달 착륙지로 나가기</button></div>
-      <div class="bl pc-only"><div class="glass chat">
-        <div class="msg sys"><b>안내</b>라운지에서는 상점·탐험 도감·우주선 꾸미기를 할 수 있어요.</div>
-        <div class="msg"><b>코스모</b>여기 음악 좋다~ 💃</div>
-        <div class="msg"><b>별헤는밤</b>창가 소파에서 지구 보여!</div>
-        <div class="input">${I.chat}<span>Enter로 채팅 · 비회원은 빠른 채팅만</span></div>
-      </div></div>
       <div class="bc pc-only"><div class="glass hint">
-        <span><i class="kbd">W</i><i class="kbd">A</i><i class="kbd">S</i><i class="kbd">D</i> 걷기</span><span><i class="kbd">Space</i> 점프</span><span><i class="kbd">E</i> 상호작용</span><span><i class="kbd">1</i>~<i class="kbd">7</i> 감정 표현</span><span>드래그 시점</span>
+        <span><i class="kbd">W</i><i class="kbd">A</i><i class="kbd">S</i><i class="kbd">D</i> 걷기</span><span><i class="kbd">Space</i> 점프</span><span>풍선 클릭 · <i class="kbd">E</i> 바로 가기·실행</span><span><i class="kbd">1</i>~<i class="kbd">8</i> 감정 표현</span><span><i class="kbd">M</i> 이동</span><span><i class="kbd">Enter</i> 채팅</span><span>드래그 시점</span>
       </div></div>
       <div class="br pc-only"><div class="glass prompt" style="display:none"></div></div>
-      <div class="joy mobile-only"><div class="joy-knob"></div></div>
-      <div class="act mobile-only">
-        <button class="round" data-k="act">${I.hand}<span class="sub">살펴보기</span></button>
-        <button class="round big" data-k="jump">${I.jump}<span class="sub">점프</span></button>
-      </div>
     </div>`);
     ctx.hud.appendChild(hud);
     prompt = hud.querySelector('.prompt');
-    ctx.mountJoystick(hud.querySelector('.joy'));
-    hud.querySelector('[data-k="act"]').addEventListener('click', () => interact());
-    hud.querySelector('[data-k="jump"]').addEventListener('pointerdown', () => { jumpQueued = true; });
     hud.querySelector('[data-k="exit"]').addEventListener('click', () => ctx.go('moon', { id: 'hub' }));
     hud.querySelector('.icon-btn[title="미션"]').addEventListener('click', () => ctx.go('mission'));
-    mountEmotes(hud.querySelector('.mr'), (k) => pickEmote(k));
-    labels = spots.map((s) => {
-      const el = h(`<div class="pill-label ${s.cls}"><i></i>${s.label}</div>`);
-      ctx.labels.appendChild(el);
-      return el;
+    mountSceneUi(ctx, hud, {
+      here: 'lounge',
+      room: 'lounge',
+      chatTitle: '달 기지 라운지',
+      seed: [
+        { who: '안내', text: '라운지에서는 상점·탐험 도감·우주선 꾸미기를 할 수 있어요.', kind: 'sys' },
+        { who: '코스모', text: '여기 음악 좋다~ 💃' },
+        { who: '별헤는밤', text: '창가 소파에서 지구 보여!' },
+      ],
+      npcs: ['코스모', '별헤는밤'],
+      main: { k: 'jump', icon: I.jump, label: '점프', onDown: () => { jumpQueued = true; } },
+      aux: [{ k: 'exit', icon: I.home, label: '나가기', onTap: () => ctx.go('moon', { id: 'hub' }) }],
+      emote: (k) => pickEmote(k),
+      canDrink: true,
+      // 채팅 말풍선: 나 · 코스모(춤추는 친구) · 별헤는밤(소파)
+      speaker: (m) => {
+        if (m.kind === 'me') return me.root;
+        if (m.who === '코스모') { chatT.dancer = Math.min(9, 4.2 + m.text.length * 0.09); return dancer.root; }
+        if (m.who === '별헤는밤') return sitter.root;
+        return null;
+      },
     });
+    // 위치 풍선: 누르면 그 앞으로 바로 이동해서 실행
+    spotUi = mountSpots(ctx, spots, (s) => goSpot(s));
+  }
+  // 풍선을 누르면 그 앞(1.6 m)으로 바로 가서 실행
+  function goSpot(s) {
+    const tx = s.pos.x, tz = s.pos.z;
+    let dx = P.pos.x - tx, dz = P.pos.z - tz;
+    let d = Math.hypot(dx, dz);
+    if (d < 0.05) { dx = 0; dz = 1; d = 1; }
+    const stand = Math.min(d, Math.max(1.3, s.r * 0.55));
+    if (d - stand > 0.3) {
+      sitting = false;
+      P.pos.set(tx + (dx / d) * stand, 0, tz + (dz / d) * stand);
+      collide(P.pos);
+      collide(P.pos);
+      P.vel.set(0, 0, 0);
+      P.vy = 0;
+      P.ground = true;
+      P.emote = null;
+      P.flipping = false;
+      P.flip = 0;
+      P.heading = Math.atan2(tx - P.pos.x, tz - P.pos.z);
+      cam.yaw = Math.atan2(P.pos.x - tx, P.pos.z - tz);
+    }
+    nearKey = s.key;
+    interact(s.key);
   }
 
   function openShop() {
@@ -455,17 +488,27 @@ export function createLoungeScene(ctx) {
     cam.pitch = 0.18;
     toast('창밖으로 달 언덕과 작은 지구가 보여요 · 움직이면 일어나요');
   }
-  function interact() {
-    if (!nearKey) return toast('가까이 가면 할 수 있는 일이 나타나요');
-    if (nearKey === 'exit') ctx.go('moon', { id: 'hub' });
-    else if (nearKey === 'shop') openShop();
-    else if (nearKey === 'book') openBook();
-    else if (nearKey === 'ship') openShipDeco();
-    else if (nearKey === 'sofa') sitOnSofa();
+  function interact(key) {
+    const k = key || nearKey;
+    if (!k) return toast('가고 싶은 곳의 풍선을 누르면 바로 가서 실행돼요');
+    if (k === 'exit') ctx.go('moon', { id: 'hub' });
+    else if (k === 'shop') openShop();
+    else if (k === 'book') openBook();
+    else if (k === 'ship') openShipDeco();
+    else if (k === 'sofa') sitOnSofa();
   }
   function pickEmote(k) {
     const e = EMOTES.find((x) => x.k === k);
     if (!e) return;
+    if (k === 'drink') {
+      if (!P.ground) return;
+      P.vel.set(0, 0, 0);
+      P.emote = 'drink';
+      P.emoteT = e.dur;
+      drink.start({ g: G, floorY: 0 });
+      toast('💧 달은 중력이 1/6이라 흘린 물방울이 지구보다 천천히 떨어져요 · 정거장(무중력)에서는 물이 둥둥 떠요', 4600);
+      return;
+    }
     if (k === 'flip') {
       if (P.ground) {
         P.ground = false;
@@ -503,7 +546,7 @@ export function createLoungeScene(ctx) {
     camera,
     renderOpts: { exposure: 0.95, bloomStrength: 0.3, bloomThreshold: 1.0, bloomRadius: 0.4 },
     enter() {
-      me.setPreset(ctx.profile.preset);
+      me.applyProfile(ctx.profile);
       P.pos.set(0.4, 0, 5.4);
       P.vel.set(0, 0, 0);
       P.heading = Math.PI;
@@ -515,7 +558,7 @@ export function createLoungeScene(ctx) {
       drawBook();
       buildHud();
       toast('달 기지 라운지에 들어왔어요 — 상점·탐험 도감·우주선 꾸미기·창가 소파');
-      window.__lounge = { interact: (k) => { nearKey = k; interact(); }, emote: (k) => pickEmote(k), cam: (y, p, d) => { cam.yaw = y; cam.pitch = p; if (d) cam.dist = d; }, place: (x, z, hd) => { P.pos.set(x, 0, z); if (hd != null) P.heading = hd; } };
+      window.__lounge = { interact: (k) => { nearKey = k; interact(); }, goSpot: (k) => { const sp = spots.find((x) => x.key === k); if (sp) goSpot(sp); }, state: () => ({ pos: P.pos.toArray().map((v) => +v.toFixed(2)), sitting, near: nearKey, drink: drink.active }), emote: (k) => pickEmote(k), cam: (y, p, d) => { cam.yaw = y; cam.pitch = p; if (d) cam.dist = d; }, place: (x, z, hd) => { P.pos.set(x, 0, z); if (hd != null) P.heading = hd; } };
     },
     exit() {
       clearTimeout(toastTimer);
@@ -586,7 +629,9 @@ export function createLoungeScene(ctx) {
         me.state.mode = sp > 0.15 ? 'walk' : 'idle';
         me.state.speed = sp * 0.6;
       }
+      if (drink.active && P.emote !== 'drink') drink.cancel();
       me.update(dt, t);
+      drink.update(dt, t);
       dancer.state.mode = 'dance';
       dancer.update(dt, t);
       sitter.update(dt, t);
@@ -607,29 +652,15 @@ export function createLoungeScene(ctx) {
       if (cr > R - 0.5) { camera.position.x *= (R - 0.5) / cr; camera.position.z *= (R - 0.5) / cr; }
       camera.position.y = THREE.MathUtils.clamp(camera.position.y, 0.6, 6.2);
       camera.lookAt(tgt.x - Math.sin(cam.yaw) * 2.5, tgt.y + 0.3, tgt.z - Math.cos(cam.yaw) * 2.5);
-      // 이름표 · 상호작용 안내
-      const { w, hgt } = ctx.size();
-      nearKey = null;
-      let best = 1e9;
-      spots.forEach((s, i) => {
-        const el = labels[i];
-        if (!el) return;
-        const pr = project(s.pos, camera, w, hgt);
-        const dist = Math.hypot(s.pos.x - P.pos.x, s.pos.z - P.pos.z);
-        const vis = !pr.behind && pr.x > -40 && pr.x < w + 40 && pr.y > 50;
-        el.style.display = vis ? 'flex' : 'none';
-        el.style.left = `${pr.x}px`;
-        el.style.top = `${pr.y}px`;
-        el.style.opacity = dist < 6 ? '1' : '0.75';
-        if (dist < s.r && dist < best) { best = dist; nearKey = s.key; }
-      });
+      // 위치 풍선 · 상호작용 안내
+      nearKey = spotUi ? spotUi.layout(camera, P.pos, { max: 30, minY: 50, farAt: 7 }) : null;
       if (prompt) {
         const s = spots.find((x) => x.key === nearKey);
         prompt.style.display = s ? 'block' : 'none';
-        if (s) prompt.innerHTML = `<i class="kbd">E</i> ${s.act}`;
+        if (s) prompt.innerHTML = `<i class="kbd">E</i> ${s.act} <span style="opacity:.55;font-weight:600">· 풍선을 눌러도 돼요</span>`;
       }
-      const sub = hud?.querySelector('[data-k="act"] .sub');
-      if (sub) sub.textContent = nearKey ? spots.find((x) => x.key === nearKey).act.split(' ')[0] : '살펴보기';
+      chatT.dancer = Math.max(0, chatT.dancer - dt);
+      dBubble.visible = chatT.dancer <= 0;
       if (input.pressed.has('e')) interact();
       void wl;
     },

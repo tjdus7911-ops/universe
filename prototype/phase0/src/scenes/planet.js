@@ -42,7 +42,6 @@ export function createPlanetScene(ctx) {
     const b = byId[id];
     const list = pool();
     const idx = list.indexOf(id);
-    const gravityOk = ['earth', 'moon', 'mars'].includes(id);
     const cmpRow = (label, v, max) => `<div class="row"><span>${label}</span><div class="bar"><i style="width:${Math.min(100, (v / max) * 100)}%"></i><u style="left:${Math.min(100, (1 / max) * 100)}%"></u></div><span>지구의 ${v >= 10 ? v.toFixed(0) : v.toFixed(v < 1 ? 2 : 1)}배</span></div>`;
     const maxD = Math.max(b.cmp.diameter, 1) * 1.15, maxG = Math.max(b.cmp.gravity, 1) * 1.15;
     const srcs = [...new Set(b.facts.map((f) => f.src))].map((k) => `<a href="${SOURCES[k].url}" target="_blank" rel="noopener">${SOURCES[k].title}</a>`).join(' · ');
@@ -60,7 +59,7 @@ export function createPlanetScene(ctx) {
       </div>
       <div class="actions">
         <button class="btn ghost" data-k="more">${I.info}자세히</button>
-        <button class="btn ${gravityOk ? 'lav' : 'ghost'}" data-k="grav" ${gravityOk ? '' : 'disabled'}>${I.jump}${gravityOk ? '중력 체험' : '체험 미지원'}</button>
+        <button class="btn lav" data-k="fly">${I.rocket}가까이 날아가기</button>
         <button class="btn" data-k="save">${I.save}도감 저장</button>
       </div>`;
     hud.querySelector('[data-k="nav"]').innerHTML = `
@@ -69,8 +68,11 @@ export function createPlanetScene(ctx) {
       <button class="icon-btn" data-k="next" title="다음" style="transform:scaleX(-1)">${I.back}</button>`;
     hud.querySelector('[data-k="prev"]').addEventListener('click', () => setBody(list[(idx + list.length - 1) % list.length]));
     hud.querySelector('[data-k="next"]').addEventListener('click', () => setBody(list[(idx + 1) % list.length]));
-    hud.querySelector('[data-k="grav"]').addEventListener('click', () => gravityOk && ctx.go('gravity'));
-    hud.querySelector('[data-k="save"]').addEventListener('click', () => toast(`도감에 "${b.ko}" 카드를 저장했어요 · 비회원은 이번 접속에서만 유지`));
+    hud.querySelector('[data-k="fly"]').addEventListener('click', () => ctx.go('space', { near: id }));
+    hud.querySelector('[data-k="save"]').addEventListener('click', () => {
+      ctx.persist();
+      toast(ctx.account.isMember() ? `도감에 "${b.ko}" 카드를 저장했어요 · 내 계정(이 브라우저)에 보관돼요` : `도감에 "${b.ko}" 카드를 담았어요 · 비회원은 이번 접속에서만 유지 (회원가입하면 저장)`);
+    });
     hud.querySelector('[data-k="more"]').addEventListener('click', () => toast('자세히 알아보기: 탐사선 사진·구조 단면·관련 미션 (PHASE 2)'));
   }
 

@@ -1,0 +1,21 @@
+{
+  "name": "space-village-phase0-prototype",
+  "private": true,
+  "version": "0.0.1",
+  "description": "우주마을 PHASE 0 3D 시안 (운영 코드 아님)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "textures": "node tools/gen-land.mjs && python3 tools/gen_textures.py"
+  },
+  "dependencies": {
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "vite": "8.3.8",
+    "world-atlas": "2.0.2",
+    "topojson-client": "3.1.0"
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+prototype/phase0/tools/out/
+.DS_Store
+*.log
+.env
+.env.*

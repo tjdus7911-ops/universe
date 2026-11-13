@@ -9,6 +9,7 @@ import { h, I, project, coinsChip } from '../ui/dom.js';
 import { byId, GRAVITY, JUMP_V0 } from '../data/planets.js';
 import { emoteFromKeys, EMOTES } from '../ui/emotes.js';
 import { mountSceneUi } from '../ui/sceneUi.js';
+import { mountPlaceMenu } from '../ui/placeMenu.js';
 import { createDrink } from '../world/water.js';
 import { mountSpots } from '../ui/spots.js';
 import { createCrowd } from '../net/crowd.js';
@@ -354,10 +355,6 @@ export function createLoungeScene(ctx) {
         <div class="glass chip"><span class="avatar-dot">나</span>${ctx.profile.name}${coinsChip(1240)}</div>
       </div>
       <div class="tr">
-        <button class="icon-btn" title="미션">${I.mission}<span class="badge">3</span></button>
-        <button class="icon-btn" title="친구">${I.friends}<span class="badge">2</span></button>
-        <button class="icon-btn pc-only" title="설정">${I.gear}</button>
-        <button class="icon-btn mobile-only" title="더보기">${I.more}</button>
       </div>
       <div class="mr"><button class="btn ghost side-btn" data-k="exit">${I.home}달 착륙지로 나가기</button></div>
       <div class="bc pc-only"><div class="glass hint">
@@ -368,7 +365,7 @@ export function createLoungeScene(ctx) {
     ctx.hud.appendChild(hud);
     prompt = hud.querySelector('.prompt');
     hud.querySelector('[data-k="exit"]').addEventListener('click', () => ctx.go('moon', { id: 'hub' }));
-    hud.querySelector('.icon-btn[title="미션"]').addEventListener('click', () => ctx.go('mission'));
+    mountPlaceMenu(ctx, hud.querySelector('.tr'), 'lounge');
     mountSceneUi(ctx, hud, {
       here: 'lounge',
       room: 'lounge',

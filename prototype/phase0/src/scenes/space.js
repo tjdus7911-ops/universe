@@ -5,6 +5,7 @@ import { createAstronaut } from '../world/astronaut.js';
 import { consumeLook, input } from '../core/input.js';
 import { createZeroG, createJetTrail } from '../core/zeroG.js';
 import { mountSceneUi } from '../ui/sceneUi.js';
+import { mountPlaceMenu } from '../ui/placeMenu.js';
 import { createCrowd } from '../net/crowd.js';
 import { h, I, project } from '../ui/dom.js';
 import { byId } from '../data/planets.js';
@@ -125,7 +126,6 @@ export function createSpaceScene(ctx) {
       <div class="tc"><div class="scale-badge">교육용 축척 — 실제 거리·크기와 많이 달라요</div></div>
       <div class="tr">
         <button class="btn return" data-k="station">${I.home}<b>정거장 복귀</b></button>
-        <button class="btn return pc-only" data-k="moon"><b>🌙 달</b></button>
       </div>
       <div class="br pc-only"><div class="glass stat-col">
         <div class="r"><span>속도</span><b data-k="spd">0</b></div>
@@ -162,7 +162,7 @@ export function createSpaceScene(ctx) {
       back.disabled = true;
       ctx.go('station', { id: 'safe' });
     });
-    hud.querySelector('[data-k="moon"]').addEventListener('click', () => ctx.go('moon', { id: 'free' }));
+    mountPlaceMenu(ctx, hud.querySelector('.tr'), 'space', { last: true });
     hud.querySelector('[data-k="found"]').addEventListener('click', () => openFound());
     arrow = h('<div class="signal-edge" style="display:none"><i></i><span>미확인 신호</span></div>');
     ctx.hud.appendChild(arrow);

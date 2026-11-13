@@ -30,6 +30,7 @@ export function mountSceneUi(ctx, hud, o) {
   tb.addEventListener('click', () => ctx.travel(o.here));
   mr.appendChild(tb);
   if (o.emote) mountEmotes(mr, o.emote, { canDrink: o.canDrink });
+  mountHintToggle(hud);
   // 실시간 접속 상태 (혼자 모드 · 연결 중 · n명 함께) — 장소 이름표의 작은 글씨
   const online = hud.querySelectorAll('[data-k="online"]');
   if (online.length && ctx.multi) {
@@ -42,4 +43,22 @@ export function mountSceneUi(ctx, hud, o) {
     upd();
   }
   return { chat, mc };
+}
+
+// 아래쪽 조작 안내: × 로 닫고, 닫으면 작은 '조작 안내' 단추만 남긴다. 닫은 상태는 이 브라우저에 기억해 모든 장소에 같이 적용
+const HINT_KEY = 'sv.hint.off';
+function hintOff() { try { return localStorage.getItem(HINT_KEY) === '1'; } catch { return false; } }
+function setHintOff(v) { try { v ? localStorage.setItem(HINT_KEY, '1') : localStorage.removeItem(HINT_KEY); } catch { /* 저장 불가 환경 */ } }
+export function mountHintToggle(hud) {
+  const hint = hud.querySelector('.bc .hint');
+  if (!hint || hint.dataset.toggle) return;
+  hint.dataset.toggle = '1';
+  const x = h('<button class="hint-x" data-k="hint-close" title="안내 닫기" aria-label="조작 안내 닫기">×</button>');
+  const open = h('<button class="glass hint-open" data-k="hint-open" title="조작 안내 보기">⌨ 조작 안내</button>');
+  hint.appendChild(x);
+  hint.parentElement.appendChild(open);
+  const apply = (off) => { hint.style.display = off ? 'none' : ''; open.style.display = off ? '' : 'none'; };
+  x.addEventListener('click', () => { setHintOff(true); apply(true); });
+  open.addEventListener('click', () => { setHintOff(false); apply(false); });
+  apply(hintOff());
 }

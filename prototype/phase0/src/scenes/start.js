@@ -78,13 +78,12 @@ export function createStartScene(ctx) {
       <div class="title-wrap">
         <div class="logo">우주마을</div>
         <div class="logo-sub">SPACE VILLAGE · 가칭</div>
-        <div class="note" style="margin-top:14px;font-size:14px">친구들과 달 기지에서 만나고, 깡충 뛰고 유영하며 과학을 배워요</div>
+        <div class="note" style="margin-top:14px;font-size:14px">친구들과 달 기지에서 만나고, 깡충 뛰고 우주를 날아다니며 과학을 배워요</div>
       </div>
       <div class="start-btns">
         <button class="btn" data-k="go">${I.rocket}우주로 떠나기</button>
         <div class="note" style="text-align:center">닉네임과 아바타를 정하고 바로 출발해요 · 같은 곳에 있는 사람들과 직접 채팅할 수 있어요</div>
       </div>
-      <div class="tr"><button class="icon-btn" title="설정">${I.gear}</button></div>
     </div>`);
     el.querySelector('[data-k="go"]').addEventListener('click', () => setStep('avatar'));
     return el;

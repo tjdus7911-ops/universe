@@ -128,61 +128,6 @@ function signTexture(lines, opts = {}) {
   });
 }
 
-function missionBoardTexture() {
-  return canvasTexture(1024, 1400, (ctx, w, h) => {
-    const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, '#16224e');
-    g.addColorStop(1, '#0c1330');
-    roundRect(ctx, 8, 8, w - 16, h - 16, 60);
-    ctx.fillStyle = g;
-    ctx.fill();
-    ctx.strokeStyle = '#6ff0d2';
-    ctx.lineWidth = 8;
-    ctx.stroke();
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `800 86px ${FONT}`;
-    ctx.fillText('미션 게시판', 70, 150);
-    ctx.font = `600 38px ${FONT}`;
-    ctx.fillStyle = '#9cc8ff';
-    ctx.fillText('오늘의 미션 · 한국 시간 0시 갱신', 72, 215);
-    const items = [
-      ['궤도 청소 작전', '인공위성 파편 5개 수거', '+30', '#6ff0d2'],
-      ['지구 관측', '전망창에서 지구 살펴보기', '+10', '#9cc8ff'],
-      ['행성 탐험', '화성 정보 카드 읽기', '+15', '#ff8f7a'],
-      ['첫 우주 유영', '정거장 밖으로 나가 보기', '배지', '#b9a6ff'],
-    ];
-    items.forEach(([t, s, r, c], i) => {
-      const y = 290 + i * 262;
-      roundRect(ctx, 56, y, w - 112, 220, 40);
-      ctx.fillStyle = 'rgba(255,255,255,0.07)';
-      ctx.fill();
-      ctx.fillStyle = c;
-      ctx.beginPath();
-      ctx.arc(140, y + 110, 46, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#0c1330';
-      ctx.font = `800 44px ${FONT}`;
-      ctx.textAlign = 'center';
-      ctx.fillText(String(i + 1), 140, y + 126);
-      ctx.textAlign = 'left';
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `800 54px ${FONT}`;
-      ctx.fillText(t, 216, y + 96);
-      ctx.fillStyle = 'rgba(220,230,255,0.82)';
-      ctx.font = `500 38px ${FONT}`;
-      ctx.fillText(s, 218, y + 158);
-      roundRect(ctx, w - 250, y + 74, 150, 72, 36);
-      ctx.fillStyle = c;
-      ctx.fill();
-      ctx.fillStyle = '#0c1330';
-      ctx.font = `800 40px ${FONT}`;
-      ctx.textAlign = 'center';
-      ctx.fillText(r, w - 175, y + 124);
-      ctx.textAlign = 'left';
-    });
-  });
-}
-
 function billboardTexture() {
   return canvasTexture(1600, 900, (ctx, w, h) => {
     const g = ctx.createLinearGradient(0, 0, w, h);
@@ -367,21 +312,6 @@ export function createStationInterior() {
   plant(group, -8.6, 4.8, 0, 1.25, 11);
   plant(group, 8.8, 4.2, 0, 1.25, 17);
 
-  // 미션 게시판 (왼쪽 앞)
-  const board = new THREE.Group();
-  const bth = t0 + SPAN + 0.32;
-  board.position.set(Math.sin(bth) * (R - 0.9), 0, Math.cos(bth) * (R - 0.9));
-  board.lookAt(0, 0, 0);
-  const post = new THREE.Mesh(new RoundedBoxGeometry(2.3, 3.5, 0.26, 3, 0.1), std('#ffffff', { r: 0.4 }));
-  post.position.y = 2.15;
-  post.castShadow = true;
-  board.add(post);
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 2.73), new THREE.MeshBasicMaterial({ map: missionBoardTexture(), toneMapped: false }));
-  screen.position.set(0, 2.2, 0.14);
-  board.add(screen);
-  group.add(board);
-  hotspots.board = new THREE.Vector3(board.position.x, 4.2, board.position.z);
-
   // 광고 전광판 (오른쪽 앞)
   const bb = new THREE.Group();
   const ath = t0 - 0.36;
@@ -400,29 +330,6 @@ export function createStationInterior() {
   }
   group.add(bb);
   hotspots.billboard = new THREE.Vector3(bb.position.x, 4.9, bb.position.z);
-
-  // 우주 유영 출입구 (왼쪽 벽, 에어록)
-  const air = new THREE.Group();
-  const eth = t0 + SPAN + 0.95;
-  air.position.set(Math.sin(eth) * (R - 0.05), 0, Math.cos(eth) * (R - 0.05));
-  air.lookAt(0, 0, 0);
-  const ringDoor = new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.22, 20, 64), std('#e9ebf6', { r: 0.3, m: 0.3 }));
-  ringDoor.position.set(0, 1.9, 0.05);
-  air.add(ringDoor);
-  const hatch = new THREE.Mesh(new THREE.CircleGeometry(1.42, 64), std('#58607e', { r: 0.35, m: 0.5 }));
-  hatch.position.set(0, 1.9, 0.02);
-  air.add(hatch);
-  const hz = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.07, 8, 48), std('#ffa64d', { e: '#ff9a3c', ei: 1.4 }));
-  hz.position.set(0, 1.9, 0.06);
-  air.add(hz);
-  const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.06, 10, 32), std('#d9dcec', { r: 0.3, m: 0.6 }));
-  wheel.position.set(0, 1.9, 0.12);
-  air.add(wheel);
-  const airSign = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 0.7), new THREE.MeshBasicMaterial({ map: signTexture(['우주 유영 출입구', 'EVA · 우주복 착용 필수'], { hazard: true, ring: '#ffa64d' }), transparent: true, toneMapped: false }));
-  airSign.position.set(0, 3.95, 0.08);
-  air.add(airSign);
-  group.add(air);
-  hotspots.airlock = new THREE.Vector3(air.position.x, 4.6, air.position.z);
 
   // 행성 관측실 · 우주선 탑승장 표지
   const obs = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.65), new THREE.MeshBasicMaterial({ map: signTexture(['행성 관측실 →', '우주 탐험 출발'], { ring: '#b9a6ff' }), transparent: true, toneMapped: false }));

@@ -8,6 +8,7 @@ import { consumeLook, input, moveIntent } from '../core/input.js';
 import { h, I, project, coinsChip } from '../ui/dom.js';
 import { BODIES } from '../data/planets.js';
 import { mountSceneUi } from '../ui/sceneUi.js';
+import { mountPlaceMenu } from '../ui/placeMenu.js';
 import { EMOTES, emoteFromKeys } from '../ui/emotes.js';
 import { createDrink } from '../world/water.js';
 import { mountSpots } from '../ui/spots.js';
@@ -58,7 +59,7 @@ export function createStationScene(ctx) {
   const npcs = [
     { o: { preset: 'lavender', skin: '#f6cba8', hair: '#2a2633', name: '별헤는밤' }, p: [-1.6, 0, -8.6], ry: Math.PI + 0.1, mode: 'idle', say: '지구 진짜 크다…!' },
     { o: { preset: 'coral', skin: '#e3ad86', hair: '#d9a05b', name: '코스모' }, p: [2.2, 0, -8.9], ry: Math.PI - 0.25, mode: 'idle' },
-    { o: { preset: 'sky', skin: '#ffdcc6', hair: '#c47a8a', name: '루나' }, p: [-5.6, 0, 1.4], ry: -2.2, mode: 'walk', say: '같이 유영 갈래?' },
+    { o: { preset: 'sky', skin: '#ffdcc6', hair: '#c47a8a', name: '루나' }, p: [-5.6, 0, 1.4], ry: -2.2, mode: 'walk', say: '같이 우주 탐험 갈래?' },
   ].map((n) => {
     const a = createAstronaut(n.o);
     a.root.position.set(...n.p);
@@ -82,8 +83,6 @@ export function createStationScene(ctx) {
   const HS = interior.hotspots;
   const spots = [
     { key: 'window', pos: HS.window, label: '지구 전망창', cls: '', act: '지구 관측하기', r: 3.2 },
-    { key: 'board', pos: HS.board, label: '미션 게시판', cls: 'lav', act: '미션 게시판 열기', r: 3.6 },
-    { key: 'airlock', pos: HS.airlock, label: '우주 유영 출입구', cls: 'orange', act: '우주복 확인 후 유영하기', r: 3.8 },
     { key: 'observatory', pos: HS.observatory, label: '행성 관측실', cls: 'lav', act: '우주 탐험 떠나기', r: 3.8 },
     { key: 'gate', pos: HS.gate, label: '우주선 탑승장', cls: 'coral', act: '우주선 타기 (목적지 고르기)', r: 3.8 },
     { key: 'billboard', pos: HS.billboard, label: '전광판 · 공지/광고 구분', cls: 'coral', act: '전광판 자세히 보기', r: 3.6 },
@@ -97,12 +96,7 @@ export function createStationScene(ctx) {
         <div class="glass chip"><span class="avatar-dot">나</span>${ctx.profile.name}${coinsChip(1240)}</div>
       </div>
       <div class="tr">
-        <button class="icon-btn" title="미션">${I.mission}<span class="badge">3</span></button>
         <button class="icon-btn pc-only" title="탐험 도감">${I.book}</button>
-        <button class="icon-btn" title="친구">${I.friends}<span class="badge">2</span></button>
-        <button class="icon-btn pc-only" title="설정">${I.gear}</button>
-        <button class="icon-btn mobile-only" title="더보기">${I.more}</button>
-      </div>
       </div>
       <div class="bc pc-only"><div class="glass hint">
         <span><i class="kbd">W</i><i class="kbd">A</i><i class="kbd">S</i><i class="kbd">D</i> 걷기</span>
@@ -119,7 +113,7 @@ export function createStationScene(ctx) {
       seed: [
         { who: '안내', text: '전망창 앞 초록 원에 서면 지구를 관측할 수 있어요.', kind: 'sys' },
         { who: '별헤는밤', text: '지구 진짜 크다…!' },
-        { who: '루나', text: '같이 유영 갈래? 에어록 앞에서 만나' },
+        { who: '루나', text: '같이 우주 탐험 갈래? 행성 관측실 앞에서 만나' },
       ],
       npcs: ['별헤는밤', '루나'],
       emote: (k) => pickEmote(k),
@@ -134,7 +128,7 @@ export function createStationScene(ctx) {
         return f.a.root;
       },
     });
-    hud.querySelector('.icon-btn[title="미션"]').addEventListener('click', () => ctx.go('mission'));
+    mountPlaceMenu(ctx, hud.querySelector('.tr'), 'station');
     hud.querySelector('.icon-btn[title="탐험 도감"]').addEventListener('click', () => toast(foundText()));
     // 위치 풍선: 누르면 그 앞으로 바로 가서 실행
     spotUi = mountSpots(ctx, spots, (s) => goSpot(s));
@@ -208,8 +202,6 @@ export function createStationScene(ctx) {
   function interact(key) {
     const k = key || nearKey || 'window';
     if (k === 'window') ctx.go('planet', { id: 'earth', from: 'station' });
-    else if (k === 'board') ctx.go('mission');
-    else if (k === 'airlock') ctx.go('eva');
     else if (k === 'observatory') ctx.go('space');
     else if (k === 'gate') openShipMenu();
     else toast('전광판: 운영 공지·우주 상식은 보라색, 승인된 광고는 점선 테두리 + "광고" 표시');
@@ -263,11 +255,9 @@ export function createStationScene(ctx) {
       me.applyProfile(ctx.profile);
       drink.stop();
       emote = null;
-      if (p.id === 'airlock') placeAt(HS.airlock, 5.6);
-      else if (p.id === 'safe' || p.id === 'gate') placeAt(HS.gate, 5.6);
+      if (p.id === 'safe' || p.id === 'gate') placeAt(HS.gate, 5.6);
       buildHud();
-      if (p.id === 'airlock') toast('정거장 복귀 완료 — 에어록 앞 안전 구역이에요');
-      else if (p.id === 'safe' || p.id === 'gate') toast('궤도 정거장 도착 — 우주선 탑승장 앞이에요');
+      if (p.id === 'safe' || p.id === 'gate') toast('궤도 정거장 도착 — 우주선 탑승장 앞이에요');
     },
     exit() { crowd.clear(); },
     resize(w, hh) {

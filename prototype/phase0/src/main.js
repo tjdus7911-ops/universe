@@ -14,8 +14,6 @@ const SCENES = [
   { id: 'start', label: '시작 · 아바타', load: () => import('./scenes/start.js').then((m) => m.createStartScene) },
   { id: 'moon', label: '달 기지 · 도착', load: () => import('./scenes/moon.js').then((m) => m.createMoonScene) },
   { id: 'station', label: '정거장 · 지구 전망', load: () => import('./scenes/station.js').then((m) => m.createStationScene) },
-  { id: 'eva', label: '우주 유영', load: () => import('./scenes/eva.js').then((m) => m.createEvaScene) },
-  { id: 'mission', label: '쓰레기 수거 미션', load: () => import('./scenes/eva.js').then((m) => (c) => m.createEvaScene(c, { mission: true })) },
   { id: 'lounge', label: '달 기지 라운지', load: () => import('./scenes/lounge.js').then((m) => m.createLoungeScene) },
   { id: 'space', label: '우주 탐험 · 아바타 비행', load: () => import('./scenes/space.js').then((m) => m.createSpaceScene) },
   { id: 'planet', label: '행성 정보', load: () => import('./scenes/planet.js').then((m) => m.createPlanetScene) },
@@ -244,7 +242,9 @@ textureManager.onLoad = () => { busy = false; };
 (async () => {
   const [hs, hid] = (location.hash.slice(1) || '').split('-');
   const known = SCENES.some((x) => x.id === hs);
-  const sid = params.get('scene') || (known ? hs : 'start');
+  const qs = params.get('scene');
+  // 지운 장면(우주 유영·쓰레기 수거 미션)이나 모르는 주소로 오면 시작 화면으로
+  const sid = qs && SCENES.some((x) => x.id === qs) ? qs : known ? hs : 'start';
   const pid = params.get('id') || (known ? hid : undefined);
   await go(sid, pid ? { id: pid } : {});
   const t0 = performance.now();

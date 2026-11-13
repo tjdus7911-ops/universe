@@ -8,6 +8,7 @@ import { h, I, project, coinsChip } from '../ui/dom.js';
 import { GRAVITY, JUMP_V0, SOURCES, EARTH_FROM_MOON_DEG, EARTH_GAME_SCALE } from '../data/planets.js';
 import { emoteFromKeys, EMOTES } from '../ui/emotes.js';
 import { mountSceneUi } from '../ui/sceneUi.js';
+import { mountPlaceMenu } from '../ui/placeMenu.js';
 import { mountSpots } from '../ui/spots.js';
 import { createDrink } from '../world/water.js';
 import { createCrowd } from '../net/crowd.js';
@@ -302,10 +303,6 @@ export function createMoonScene(ctx) {
         <div class="glass chip grav"><b>달 중력 1/6</b><small>1.62 m/s²</small></div>
       </div>
       <div class="tr">
-        <button class="icon-btn" title="미션">${I.mission}<span class="badge">3</span></button>
-        <button class="icon-btn" title="친구">${I.friends}<span class="badge">2</span></button>
-        <button class="icon-btn pc-only" title="설정">${I.gear}</button>
-        <button class="icon-btn mobile-only" title="더보기">${I.more}</button>
       </div>
       <div class="mr">
         <button class="btn ghost side-btn" data-k="earth">${sizeLabel()}</button>
@@ -321,7 +318,7 @@ export function createMoonScene(ctx) {
     </div>`);
     ctx.hud.appendChild(hud);
     prompt = hud.querySelector('.prompt');
-    hud.querySelector('.icon-btn[title="미션"]').addEventListener('click', () => ctx.go('mission'));
+    mountPlaceMenu(ctx, hud.querySelector('.tr'), 'moon');
     const eb = hud.querySelector('[data-k="earth"]');
     const toggleEarth = () => {
       earthTarget = earthTarget > 1.5 ? 1 : EARTH_GAME_SCALE;

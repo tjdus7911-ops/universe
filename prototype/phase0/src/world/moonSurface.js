@@ -1,19 +1,39 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { ROVER_COUNT } from '../../../../packages/shared/protocol.js';
 import { canvasTexture, FONT, roundRect } from '../core/renderer.js';
 import { solarTex } from './stationExterior.js';
 
 // 달 착륙지 (시안용 절차적 모델) — 포장 광장 없이 울퉁불퉁한 실제 달 지형 위에 사람들이 모인다
 // 좌표: 우주선 착륙 지점 = 원점, -Z = 북쪽(지구가 지평선 가까이 떠 있는 방향), +X = 동쪽
-// 월면차: 착륙지 곳곳에 흩어 둔 4인승 (가까이 가거나 풍선을 누르면 탐)
-const ROVERS = [
-  { x: -9.5, z: -9.5, rot: 0.55 }, // 착륙선 옆
-  { x: 12, z: -22, rot: -0.9 }, // 라운지 가는 길
-  { x: 17, z: 1.5, rot: 2.3 }, // 동쪽 평지
-  { x: -21, z: -7, rot: 1.25 }, // 서쪽 크레이터 너머
-  { x: 4.5, z: 17.5, rot: -2.4 }, // 남쪽
-];
+// 월면차: 착륙지 곳곳에 흩어 둔 4인승 24대 (가까이 가거나 풍선을 누르면 탐)
+//  처음 5대는 자리를 정해 두고, 나머지는 구조물·바위 언덕·큰 크레이터를 피해 서로 7 m 이상 떨어진 자리를 고른다 (모든 접속자가 같은 자리)
+const ROVERS = (() => {
+  const out = [
+    { x: -9.5, z: -9.5, rot: 0.55 }, // 착륙선 옆
+    { x: 12, z: -22, rot: -0.9 }, // 라운지 가는 길
+    { x: 17, z: 1.5, rot: 2.3 }, // 동쪽 평지
+    { x: -21, z: -7, rot: 1.25 }, // 서쪽 크레이터 너머
+    { x: 4.5, z: 17.5, rot: -2.4 }, // 남쪽
+  ];
+  // 피할 곳 [x, z, 반경]: 착륙선·기지·안테나·태양전지판·실험대·기둥·사진 언덕·망원경 · 바위 언덕 · 손으로 둔 크레이터
+  const avoid = [
+    [0, 0, 9], [24, -35, 12.5], [33.5, -31, 8], [17.5, -41.5, 5], [31.5, -42, 5], [36, -38, 5],
+    [6.4, -8.6, 5], [-4.8, -14.2, 5], [3.2, -20, 7.5], [4.35, -13.6, 3], [-8.2, -21.5, 5],
+    [-23, -31, 10.2], [21, -17, 8.5], [-31, 5, 8], [27, 11, 9.6], [-7, 31, 11.8], [45, -8, 8], [-46, -14, 10.2], [-15, -52, 9],
+    [-13.5, -2.5, 5.7], [12.5, -13, 5.1], [13, 6, 6.7], [-5, 13, 8.5], [-16, -20, 7], [9, -29, 6.1], [-36, -30, 16.5], [40, 26, 18.5],
+  ];
+  const R = rng(4242);
+  for (let guard = 0; out.length < ROVER_COUNT && guard < 20000; guard++) {
+    const a = R() * Math.PI * 2, d = 10 + Math.sqrt(R()) * 36;
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    if (avoid.some(([ax, az, ar]) => Math.hypot(x - ax, z - az) < ar)) continue;
+    if (out.some((v) => Math.hypot(x - v.x, z - v.z) < 7)) continue;
+    out.push({ x: Math.round(x * 100) / 100, z: Math.round(z * 100) / 100, rot: Math.round(R() * 628) / 100 });
+  }
+  return out;
+})();
 export const MOON_LAYOUT = {
   lander: { x: 0, z: 0 },
   rover: ROVERS[0],
@@ -694,12 +714,13 @@ const easeInOut = (x) => (x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2)
 
 // ---------- 월면차 (4인승) ----------
 // 앞쪽 = +X. 좌석 4개: 앞줄(운전석 · 옆자리) + 뒷줄 2개. userData.seats = 앉은 아바타 root의 로컬 위치
-function createRover() {
+// 24대를 그리므로 모양은 한 번만 만들어 재질별로 합친다: 몸체 2덩어리(금속·무광) + 바퀴 4개 = 월면차 1대에 그리기 6번
+function buildRoverParts() {
   const g = new THREE.Group();
-  const metal = M.metal(), gold = M.gold(), white = M.white(), mint = M.mint();
+  const metal = M.metal(), gold = M.gold(), white = M.white(), mint = M.mint(), dark = M.dark();
   const tire = new THREE.MeshStandardMaterial({ color: '#7d7c80', roughness: 0.8, metalness: 0.4 });
   const seatM = new THREE.MeshStandardMaterial({ color: '#4a5168', roughness: 0.7 });
-  const wheels = [];
+  const axles = [];
   g.add(mesh(new RoundedBoxGeometry(3.25, 0.2, 1.72, 2, 0.05), metal, [0, 0.66, 0]));
   // 앞 계기판(금박 상자) + 가운데 조종간
   g.add(mesh(new RoundedBoxGeometry(0.62, 0.34, 1.36, 2, 0.06), gold, [1.27, 0.88, 0]));
@@ -709,13 +730,11 @@ function createRover() {
     axle.position.set(1.24 * sx, 0.42, 0.98 * sz);
     axle.add(mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.24, 26), tire, [0, 0, 0], [Math.PI / 2, 0, 0]));
     axle.add(mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.26, 16), mint, [0, 0, 0], [Math.PI / 2, 0, 0]));
-    for (let k = 0; k < 3; k++) axle.add(mesh(new THREE.BoxGeometry(0.06, 0.74, 0.255), M.dark(), [0, 0, 0], [0, 0, (k * Math.PI) / 3]));
+    for (let k = 0; k < 3; k++) axle.add(mesh(new THREE.BoxGeometry(0.06, 0.74, 0.255), dark, [0, 0, 0], [0, 0, (k * Math.PI) / 3]));
+    axle.userData.front = sx > 0;
     g.add(axle);
-    wheels.push({ axle, front: sx > 0 });
-    const fender = mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.3, 18, 1, true, Math.PI / 2, Math.PI), white, [1.24 * sx, 0.44, 0.98 * sz], [Math.PI / 2, 0, 0]);
-    fender.material = white.clone();
-    fender.material.side = THREE.DoubleSide;
-    g.add(fender);
+    axles.push(axle);
+    g.add(mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.3, 18, 1, true, Math.PI / 2, Math.PI), white, [1.24 * sx, 0.44, 0.98 * sz], [Math.PI / 2, 0, 0]));
   }
   // 좌석 4개 (뒷줄은 살짝 높여 앞이 보이게)
   const seats = [];
@@ -731,14 +750,70 @@ function createRover() {
   g.add(mesh(new RoundedBoxGeometry(0.36, 0.22, 0.5, 2, 0.04), white, [1.0, 1.38, 0], [0, 0, -0.3]));
   // 뒤쪽 통신 안테나(우산 모양) · 앞쪽 TV 카메라
   g.add(cyl([-1.5, 0.8, -0.66], [-1.5, 2.15, -0.66], 0.03, metal));
-  const umb = mesh(new THREE.ConeGeometry(0.5, 0.22, 24, 1, true), gold, [-1.5, 2.23, -0.66], [Math.PI, 0, 0]);
-  umb.material = gold.clone();
-  umb.material.side = THREE.DoubleSide;
-  g.add(umb);
+  g.add(mesh(new THREE.ConeGeometry(0.5, 0.22, 24, 1, true), gold, [-1.5, 2.23, -0.66], [Math.PI, 0, 0]));
   g.add(cyl([1.5, 0.8, 0.58], [1.5, 1.55, 0.58], 0.025, metal));
-  g.add(mesh(new RoundedBoxGeometry(0.2, 0.16, 0.24, 2, 0.03), M.dark(), [1.53, 1.6, 0.58]));
+  g.add(mesh(new RoundedBoxGeometry(0.2, 0.16, 0.24, 2, 0.03), dark, [1.53, 1.6, 0.58]));
+  return { g, axles, seats };
+}
+// 여러 도형을 한 덩어리로: 각 도형의 색을 정점 색으로 옮겨 재질 하나로 그린다
+function bake(meshes, inv) {
+  const m4 = new THREE.Matrix4();
+  const geos = meshes.map((o) => {
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k);
+    g.applyMatrix4(m4.multiplyMatrices(inv, o.matrixWorld));
+    const c = o.material.color, n = g.attributes.position.count, col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return g;
+  });
+  return mergeGeometries(geos, false);
+}
+let ROVER_TPL = null;
+function roverTemplate() {
+  if (ROVER_TPL) return ROVER_TPL;
+  const { g, axles, seats } = buildRoverParts();
+  g.updateMatrixWorld(true);
+  const inAxle = new Set();
+  axles.forEach((a) => a.traverse((o) => inAxle.add(o)));
+  const metal = [], matte = [];
+  g.traverse((o) => { if (o.isMesh && !inAxle.has(o)) (o.material.metalness >= 0.7 ? metal : matte).push(o); });
+  const a0 = axles[0];
+  const wheel = [];
+  a0.traverse((o) => o.isMesh && wheel.push(o));
+  ROVER_TPL = {
+    metal: bake(metal, new THREE.Matrix4()),
+    matte: bake(matte, new THREE.Matrix4()),
+    wheel: bake(wheel, new THREE.Matrix4().copy(a0.matrixWorld).invert()),
+    axles: axles.map((a) => ({ pos: a.position.clone(), front: a.userData.front })),
+    seats,
+    mats: {
+      metal: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.8, side: THREE.DoubleSide }),
+      matte: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.12, side: THREE.DoubleSide }),
+      wheel: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.35 }),
+    },
+  };
+  return ROVER_TPL;
+}
+function createRover() {
+  const T = roverTemplate();
+  const g = new THREE.Group();
+  for (const k of ['metal', 'matte']) {
+    const m = new THREE.Mesh(T[k], T.mats[k]);
+    m.castShadow = m.receiveShadow = true;
+    g.add(m);
+  }
+  const wheels = T.axles.map((a) => {
+    const axle = new THREE.Group();
+    axle.position.copy(a.pos);
+    const m = new THREE.Mesh(T.wheel, T.mats.wheel);
+    m.castShadow = true;
+    axle.add(m);
+    g.add(axle);
+    return { axle, front: a.front };
+  });
   g.userData.wheels = wheels;
-  g.userData.seats = seats;
+  g.userData.seats = T.seats.map((v) => v.clone());
   return g;
 }
 
@@ -994,7 +1069,8 @@ export function createMoonBase({ heightAt, normalAt, sunDir, earthDir, boulders 
     { key: 'hammer', pos: H(L.stand.x, L.stand.z, 2.5), label: '망치·깃털 실험', act: '망치와 깃털 동시에 놓기', cls: 'lav', r: 2.6 },
     { key: 'pole', pos: H(L.pole.x, L.pole.z, 4.5), label: '점프 측정 기둥', act: '점프 기록 보기', cls: 'orange', r: 2.4 },
     { key: 'scope', pos: H(L.scope.x, L.scope.z, 2.2), label: '관측 망원경', act: '망원경으로 지구 보기', cls: 'lav', r: 2.4 },
-    ...L.rovers.map((rv, i) => ({ key: `rover${i}`, rover: i, pos: H(rv.x, rv.z, 2.5), label: '월면차 · 4인승', act: '타기', cls: '', r: 3.2 })),
+    // 월면차 풍선은 가까운 것(20 m 안)만 보여 화면이 어지럽지 않게
+    ...L.rovers.map((rv, i) => ({ key: `rover${i}`, rover: i, pos: H(rv.x, rv.z, 2.5), label: '월면차 · 4인승', act: '타기', cls: '', r: 3.2, max: 20 })),
   ];
 
   return {

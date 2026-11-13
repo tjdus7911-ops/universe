@@ -4,8 +4,10 @@ import { createSkyDome, createStarfield, createSun } from '../world/space.js';
 import { createAstronaut, HAIRS, makeSpaceEnv, SKINS, SUIT_PRESETS } from '../world/astronaut.js';
 import { consumeLook } from '../core/input.js';
 import { h, I } from '../ui/dom.js';
+import { clean } from '../ui/chat.js';
 
-// 장면 0 — 시작 화면 → (회원가입·로그인 또는 둘러보기) → 아바타·우주복 선택 → 탑승
+// 장면 0 — 시작 화면 → '우주로 떠나기' → 닉네임·아바타·우주복 선택 → 탑승
+// 회원가입·로그인 화면은 지금은 숨김 (코드는 남겨 둠: openAuth). 닉네임·아바타·발견 기록은 이 브라우저에 저장된다.
 // 모바일: 위쪽 = 아바타 미리보기(전신이 보이게 카메라 자동 맞춤), 아래쪽 = 설정 패널(스크롤) — 서로 겹치지 않음
 export function createStartScene(ctx) {
   const scene = new THREE.Scene();
@@ -72,7 +74,6 @@ export function createStartScene(ctx) {
   }
 
   function titleHud() {
-    const u = acct.user;
     const el = h(`<div>
       <div class="title-wrap">
         <div class="logo">우주마을</div>
@@ -80,36 +81,18 @@ export function createStartScene(ctx) {
         <div class="note" style="margin-top:14px;font-size:14px">친구들과 달 기지에서 만나고, 깡충 뛰고 유영하며 과학을 배워요</div>
       </div>
       <div class="start-btns">
-        ${u ? `
-          <div class="glass chip acct" style="justify-self:center">${I.user}<b>${esc(u.name)}</b>님, 다시 오신 걸 환영해요</div>
-          <button class="btn" data-k="continue">${I.rocket}이어서 탐험하기</button>
-          <button class="btn ghost" data-k="avatar">${I.user}아바타 바꾸기</button>
-          <button class="btn ghost" data-k="logout">로그아웃</button>
-          <div class="note" style="text-align:center">아바타와 발견한 천체가 이 브라우저에 저장돼 있어요</div>` : `
-          <button class="btn" data-k="signup">회원가입</button>
-          <button class="btn ghost" data-k="login">로그인</button>
-          <button class="btn ghost" data-k="guest">${I.eye}둘러보기 (비회원)</button>
-          <div class="note" style="text-align:center">비회원: 달 기지·정거장 구경·유영·행성 정보 이용 가능 · 아바타·도감 저장과 직접 채팅은 회원 전용</div>`}
+        <button class="btn" data-k="go">${I.rocket}우주로 떠나기</button>
+        <div class="note" style="text-align:center">닉네임과 아바타를 정하고 바로 출발해요 · 같은 곳에 있는 사람들과 직접 채팅할 수 있어요</div>
       </div>
       <div class="tr"><button class="icon-btn" title="설정">${I.gear}</button></div>
     </div>`);
-    el.querySelector('[data-k="guest"]')?.addEventListener('click', () => setStep('avatar'));
-    el.querySelector('[data-k="signup"]')?.addEventListener('click', () => openAuth('signup'));
-    el.querySelector('[data-k="login"]')?.addEventListener('click', () => openAuth('login'));
-    el.querySelector('[data-k="avatar"]')?.addEventListener('click', () => setStep('avatar'));
-    el.querySelector('[data-k="continue"]')?.addEventListener('click', () => ctx.go('moon'));
-    el.querySelector('[data-k="logout"]')?.addEventListener('click', () => {
-      acct.logout();
-      ctx.resetGuest();
-      Object.assign(ctx.profile, { preset: 'mint', skin: SKINS[0], hair: HAIRS[0] });
-      rebuild();
-      setStep('title');
-      toast('로그아웃했어요');
-    });
+    el.querySelector('[data-k="go"]').addEventListener('click', () => setStep('avatar'));
     return el;
   }
 
   // 회원가입·로그인 (시안: 이 브라우저에만 저장되는 로컬 계정 — core/account.js)
+  // 지금은 화면에서 숨김: 어디에서도 열지 않는다. 다시 쓰려면 시작 화면에 버튼만 되살리면 된다.
+  // eslint-disable-next-line no-unused-vars
   function openAuth(mode) {
     ctx.hud.querySelector('.auth-wrap')?.remove();
     const el = h(`<div class="modal-wrap auth-wrap"><div class="modal auth">
@@ -175,8 +158,7 @@ export function createStartScene(ctx) {
   }
 
   function avatarHud() {
-    const member = acct.isMember();
-    const back = ctx.progress.seenIntro && member;
+    const back = ctx.progress.seenIntro;
     const el = h(`<div>
       <div class="tl"><button class="btn ghost" data-k="back">${I.back}처음으로</button></div>
       <div class="tc"><div class="glass chip steps">1 시작 · <b>2 아바타</b> · 3 우주복 · 4 탑승</div></div>
@@ -187,17 +169,27 @@ export function createStartScene(ctx) {
         <span class="rlbl pc-only">드래그로 돌려 보기</span>
       </div>
       <div class="glass picker">
-        <h3>나의 우주 탐험가${member ? ` · ${esc(ctx.profile.name)}` : ''}</h3>
+        <h3>나의 우주 탐험가</h3>
+        <label class="nick"><span>닉네임 <small>(2~12자 · 다른 사람에게 보여요)</small></span><input data-k="nick" maxlength="12" autocomplete="nickname" enterkeyhint="done" value="${esc(ctx.profile.name)}" placeholder="우주탐험가"></label>
         <div class="note long">아바타 4종 + 우주복 색상. 꾸미기 아이템은 스타코인으로 추가돼요.</div>
         <div class="presets">${SKINS.map((c, i) => `<div class="pre ${i === skinIdx() ? 'on' : ''}" data-skin="${i}"><div class="face" style="background:${c};box-shadow:inset 0 10px 0 ${HAIRS[i]}"></div>${['단발', '포니', '숏컷', '곱슬'][i]}</div>`).join('')}</div>
         <div style="font-weight:800;font-size:13px">우주복 색상</div>
         <div class="swatches">${presetKeys.map((k) => `<div class="sw ${k === ctx.profile.preset ? 'on' : ''}" data-suit="${k}" style="background:linear-gradient(160deg, ${SUIT_PRESETS[k].suit} 55%, ${SUIT_PRESETS[k].accent} 56%)">${{ mint: '민트', lavender: '라벤더', coral: '코랄', sky: '스카이' }[k]}</div>`).join('')}</div>
         <button class="btn ghost" data-k="helmet">${I.globe}${helmetOn ? '헬멧 벗기' : '헬멧 써 보기'}</button>
         <button class="btn" data-k="go">${I.rocket}${back ? '이어서 탐험하기' : '우주선 탑승하기'}</button>
-        <div class="note">${member ? '바꾼 아바타는 계정에 저장돼요.' : '비회원은 새로고침하면 처음 상태로 돌아가요.'} ${ctx.progress.seenIntro ? '' : '첫 방문은 달 착륙 연출(약 10초)을 보여 줘요.'}</div>
+        <div class="note">닉네임·아바타는 이 브라우저에 저장돼요. ${ctx.progress.seenIntro ? '' : '첫 방문은 달 착륙 연출(약 10초)을 보여 줘요.'}</div>
       </div>
     </div>`);
     el.querySelector('[data-k="back"]').addEventListener('click', () => setStep('title'));
+    // 닉네임: 욕설·연락처는 걸러 내고, 비면 기본 이름
+    const nick = el.querySelector('[data-k="nick"]');
+    const applyNick = () => {
+      const v = clean(nick.value).replace(/[^\p{L}\p{N}_\- ]/gu, '').trim().slice(0, 12);
+      ctx.profile.name = v.length >= 2 ? v : '우주탐험가';
+      ctx.persist();
+    };
+    nick.addEventListener('change', applyNick);
+    nick.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') nick.blur(); });
     el.querySelectorAll('[data-suit]').forEach((b) => b.addEventListener('click', () => {
       ctx.profile.preset = b.dataset.suit;
       avatar.setPreset(b.dataset.suit);
@@ -218,7 +210,7 @@ export function createStartScene(ctx) {
       hb.innerHTML = `${I.globe}${helmetOn ? '헬멧 벗기' : '헬멧 써 보기'}`;
     });
     el.querySelector('[data-k="go"]').addEventListener('click', () => {
-      ctx.persist();
+      applyNick();
       ctx.go('moon');
     });
     el.querySelector('[data-k="rl"]').addEventListener('click', () => { autoRot = false; yawT -= Math.PI / 4; syncAuto(); });

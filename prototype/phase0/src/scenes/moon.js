@@ -10,6 +10,7 @@ import { emoteFromKeys, EMOTES } from '../ui/emotes.js';
 import { mountSceneUi } from '../ui/sceneUi.js';
 import { mountSpots } from '../ui/spots.js';
 import { createDrink } from '../world/water.js';
+import { createCrowd } from '../net/crowd.js';
 
 // 장면 — 달 착륙지: 우주선에서 내리면 모두가 처음 만나는 울퉁불퉁한 달 언덕
 const G = GRAVITY.find((x) => x.id === 'moon').g; // 1.62 m/s²
@@ -296,7 +297,7 @@ export function createMoonScene(ctx) {
     const sizeLabel = () => (earthTarget > 1.5 ? `${I.globe}지구 크기 · 연출 ${EARTH_GAME_SCALE}배` : `${I.globe}지구 크기 · 실제`);
     hud = h(`<div>
       <div class="tl">
-        <div class="glass chip"><span class="dot"></span>달 · 첫 착륙지 <small>채널 1 · 12/30명</small></div>
+        <div class="glass chip"><span class="dot"></span>달 · 첫 착륙지 <small data-k="online">혼자 모드</small></div>
         <div class="glass chip"><span class="avatar-dot">나</span>${ctx.profile.name}${coinsChip(1240)}</div>
         <div class="glass chip grav"><b>달 중력 1/6</b><small>1.62 m/s²</small></div>
       </div>
@@ -349,11 +350,12 @@ export function createMoonScene(ctx) {
     updateEarthCap();
     // 위치 풍선: 누르면 그 앞으로 바로 이동해서 실행 (PC 클릭 · 모바일 탭)
     spotUi = mountSpots(ctx, spots, (s) => goSpot(s));
-    if (mode === 'drive') { hud.classList.add('driving'); showDriveBar(); }
+    if (mode === 'drive' || mode === 'ride') { hud.classList.add('driving'); showDriveBar(); }
   }
   // 채팅 말풍선을 띄울 아바타: 나 또는 같은 이름의 NPC
   function speakerOf(m) {
     if (m.kind === 'me') return me.root;
+    if (m.peer) return crowd.anchorOf(m.peer);
     const b = npcs.find((x) => x.name === m.who);
     if (!b) return null;
     b.chatT = Math.min(9, 4.2 + m.text.length * 0.09);
@@ -387,6 +389,7 @@ export function createMoonScene(ctx) {
   // ---------- 상호작용 ----------
   function interact(key) {
     if (mode === 'drive') { stopDrive(); return; }
+    if (mode === 'ride') { stopRide(); return; }
     if (mode === 'scope') { stopScope(); return; }
     if (mode !== 'play') return;
     const k = key || nearKey;
@@ -998,15 +1001,26 @@ export function createMoonScene(ctx) {
     ctx.labels.style.display = '';
   }
 
-  // ---------- 월면차 운전 (여러 대 · 4인승: 운전석 + 친구 3명) ----------
-  // 운영(PHASE 4)에서는 서버가 좌석을 배정한다: 빈자리가 없거나 너무 멀면 거절 (클라이언트가 보낸 좌석·위치를 그대로 믿지 않음)
-  const RV = { cur: null, speed: 0, yaw: 0, steer: 0, force: null, riders: [], bar: null };
+  // ---------- 월면차 (24대 · 4인승: 운전석 + 3명) ----------
+  // 내가 운전하면 NPC 친구를 태울 수 있고(F), 실시간 접속자는 내 월면차 빈자리에 탈 수 있다.
+  // 다른 사람이 운전하는 월면차의 풍선을 누르면 그 차 빈자리에 탄다(ride). 좌석은 우주마을 서버가 있으면 서버가 정하고,
+  // 아티팩트 실시간 방에서는 같은 자리를 둘이 고르면 번호(peer)가 앞선 사람이 앉고 다른 사람은 다른 빈자리로 옮긴다.
+  const RV = { cur: null, speed: 0, yaw: 0, steer: 0, force: null, riders: [], bar: null, ride: null, seatKey: '' };
   const SEAT_Q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
   const RIDE_LINES = ['', '나도 탈래! 옆자리~', '뒷자리 내 거 🚙', '출발하자! 꽉 잡아'];
+  const remoteDriven = new Map(); // 월면차 번호 → 운전하는 접속자 id
+  // 월면차 i의 좌석을 쓰는 실시간 접속자: 좌석 번호 → 접속자
+  function remoteSeats(i) {
+    const m = new Map();
+    for (const p of ctx.multi.list()) if (p.st.rv && p.st.rv[0] === i) m.set(p.st.rv[1], p);
+    return m;
+  }
   function startDrive(i = 0) {
     const rv = base.rovers[i];
     if (!rv) return;
+    if (remoteDriven.has(i)) { startRide(i); return; } // 이미 다른 사람이 운전 중이면 손님으로
     if (mode === 'drive') stopDrive();
+    if (mode === 'ride') stopRide();
     RV.cur = rv;
     RV.speed = 0;
     RV.steer = 0;
@@ -1029,25 +1043,41 @@ export function createMoonScene(ctx) {
   function showDriveBar() {
     RV.bar?.remove();
     if (!hud) return;
-    RV.bar = h(`<div class="drive-bar glass"><span>🚙 월면차</span><span class="seats" data-k="seats"></span><button class="btn ghost" data-k="board">친구 태우기</button><button class="btn" data-k="off">내리기</button></div>`);
+    const guest = mode === 'ride';
+    RV.bar = h(`<div class="drive-bar glass"><span>🚙 ${guest ? '함께 타는 중' : '월면차'}</span><span class="seats" data-k="seats"></span>${guest ? '' : '<button class="btn ghost" data-k="board">친구 태우기</button>'}<button class="btn" data-k="off">내리기</button></div>`);
     hud.appendChild(RV.bar);
-    RV.bar.querySelector('[data-k="board"]').addEventListener('click', () => boardFriend());
-    RV.bar.querySelector('[data-k="off"]').addEventListener('click', () => stopDrive());
+    RV.bar.querySelector('[data-k="board"]')?.addEventListener('click', () => boardFriend());
+    RV.bar.querySelector('[data-k="off"]').addEventListener('click', () => (mode === 'ride' ? stopRide() : stopDrive()));
+    RV.seatKey = '';
     updateSeats();
+  }
+  // 좌석 표시: 나·NPC 친구·실시간 접속자를 모두 센다 (바뀔 때만 다시 그림)
+  function seatState() {
+    const i = mode === 'ride' ? RV.ride?.i : RV.cur?.i;
+    if (i == null) return [false, false, false, false];
+    const rs = remoteSeats(i);
+    return [0, 1, 2, 3].map((k) => !!(rs.has(k) || (mode === 'drive' && RV.riders[k]) || (mode === 'ride' && (k === RV.ride.k || (k === 0 && remoteDriven.has(i))))));
   }
   function updateSeats() {
     const el = RV.bar?.querySelector('[data-k="seats"]');
     if (!el) return;
-    const n = RV.riders.filter(Boolean).length;
-    el.innerHTML = `${RV.riders.map((r) => `<i class="${r ? 'on' : ''}"></i>`).join('')}&nbsp;${n}/4`;
+    const st = seatState();
+    const key = st.join();
+    if (key === RV.seatKey) return;
+    RV.seatKey = key;
+    const n = st.filter(Boolean).length;
+    el.innerHTML = `${st.map((on) => `<i class="${on ? 'on' : ''}"></i>`).join('')}&nbsp;${n}/4`;
     const b = RV.bar.querySelector('[data-k="board"]');
-    b.disabled = n >= 4;
-    b.textContent = n >= 4 ? '만석' : '친구 태우기';
+    if (b) {
+      b.disabled = n >= 4;
+      b.textContent = n >= 4 ? '만석' : '친구 태우기';
+    }
   }
-  // 가까운 친구(24 m 안)가 달 중력으로 깡충 뛰어 빈자리에 탄다
+  // 가까운 NPC 친구(24 m 안)가 달 중력으로 깡충 뛰어 빈자리에 탄다
   function boardFriend() {
     if (mode !== 'drive' || !RV.cur) return;
-    const seat = RV.riders.indexOf(null);
+    const rs = remoteSeats(RV.cur.i);
+    const seat = [1, 2, 3].find((k) => !RV.riders[k] && !rs.has(k)) ?? -1;
     if (seat < 0) {
       toast('월면차는 최대 4명까지 탈 수 있어요 (운전석 포함)');
       return;
@@ -1076,13 +1106,20 @@ export function createMoonScene(ctx) {
     updateSeats();
   }
   // 내리기: 나는 운전석 옆, 친구들은 자기 자리 옆으로 내려서 원래 자리로 깡충깡충 돌아감
-  const offV = new THREE.Vector3();
   function getOffAt(g, seat, out) {
     g.localToWorld(out.set(seat.x, 0, Math.sign(seat.z || 1) * 1.75));
     out.y = 0;
     collide(out);
     out.y = H(out.x, out.z);
     return out;
+  }
+  function npcGetOff(b, g, k, rv) {
+    getOffAt(g, rv.seats[k], b.pos);
+    b.av.root.rotation.set(0, b.heading, 0);
+    b.ground = true;
+    b.vy = 0;
+    b.script = 'return';
+    b.seat = -1;
   }
   function stopDrive() {
     const rv = RV.cur;
@@ -1100,15 +1137,7 @@ export function createMoonScene(ctx) {
     P.vel.set(0, 0, 0);
     P.heading = RV.yaw + Math.PI / 2;
     me.root.rotation.set(0, P.heading, 0);
-    RV.riders.forEach((b, k) => {
-      if (!b || b === P) return;
-      getOffAt(g, rv.seats[k], b.pos);
-      b.av.root.rotation.set(0, b.heading, 0);
-      b.ground = true;
-      b.vy = 0;
-      b.script = 'return';
-      b.seat = -1;
-    });
+    RV.riders.forEach((b, k) => { if (b && b !== P) npcGetOff(b, g, k, rv); });
     RV.riders = [];
     RV.force = null;
     rv.sync();
@@ -1117,6 +1146,146 @@ export function createMoonScene(ctx) {
     RV.cur = null;
     const pr = hud?.querySelector('.prompt');
     if (pr) pr.style.display = 'none';
+  }
+  // ---------- 다른 사람이 운전하는 월면차에 손님으로 타기 ----------
+  function freeGuestSeat(i, mine = -1) {
+    const rs = remoteSeats(i);
+    const myId = ctx.multi.myId();
+    for (let k = 1; k < 4; k++) {
+      const p = rs.get(k);
+      if (!p || (k === mine && myId && p.id > myId)) return k; // 같은 자리를 고르면 번호가 앞선 사람이 앉는다
+    }
+    return -1;
+  }
+  function startRide(i) {
+    const k = freeGuestSeat(i);
+    if (k < 0) {
+      toast('이 월면차는 자리가 다 찼어요 (최대 4명)');
+      return;
+    }
+    if (mode === 'drive') stopDrive();
+    RV.ride = { i, k };
+    mode = 'ride';
+    P.emote = null;
+    drink.cancel();
+    ctx.labels.style.display = 'none';
+    cam.dist = 9.5;
+    hud?.classList.add('driving');
+    showDriveBar();
+    const driver = ctx.multi.list().find((p) => p.id === remoteDriven.get(i));
+    toast(`${driver ? esc(driver.name) + '님의 ' : ''}월면차에 탔어요 · 내리려면 '내리기'${ctx.isMobile() ? '' : '(E)'}`, 4200);
+  }
+  function stopRide(msg) {
+    const R = RV.ride;
+    mode = 'play';
+    hud?.classList.remove('driving');
+    RV.bar?.remove();
+    RV.bar = null;
+    ctx.labels.style.display = '';
+    cam.dist = 6.4;
+    RV.ride = null;
+    if (!R) return;
+    const rv = base.rovers[R.i];
+    getOffAt(rv.group, rv.seats[R.k], P.pos);
+    P.ground = true;
+    P.vy = 0;
+    P.vel.set(0, 0, 0);
+    P.heading = rv.group.userData.yaw + Math.PI / 2;
+    me.root.rotation.set(0, P.heading, 0);
+    if (msg) toast(msg);
+  }
+  function updateRide(dt) {
+    const R = RV.ride;
+    if (!R) return;
+    if (!remoteDriven.has(R.i)) { stopRide('운전하던 사람이 내려서 같이 내렸어요'); return; }
+    // 같은 자리를 다른 사람도 골랐으면(번호가 앞선 사람이 우선) 다른 빈자리로, 없으면 내림
+    const other = remoteSeats(R.i).get(R.k);
+    const myId = ctx.multi.myId();
+    if (other && myId && other.id < myId) {
+      const k = freeGuestSeat(R.i, R.k);
+      if (k < 0 || k === R.k) { stopRide('자리가 다 차서 내렸어요 (최대 4명)'); return; }
+      R.k = k;
+    }
+    const rv = base.rovers[R.i];
+    rv.group.localToWorld(tmpSeat.copy(rv.seats[R.k]));
+    me.root.position.copy(tmpSeat);
+    me.root.quaternion.copy(rv.group.quaternion).multiply(SEAT_Q);
+    me.state.mode = 'sit';
+    me.state.flip = 0;
+    P.pos.copy(tmpSeat);
+    const yc = rv.group.userData.yaw - Math.PI / 2;
+    let dy = yc - cam.yaw;
+    dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    cam.yaw += dy * (1 - Math.exp(-dt * 2.2));
+  }
+  // 서버가 '그 자리는 이미 찼다'고 하면 내림
+  ctx.multi.onSeat(() => { if (mode === 'ride') stopRide('그 자리는 이미 다른 사람이 앉았어요'); });
+  // ---------- 실시간 접속자가 운전하는 월면차 움직이기 ----------
+  const tmpSeat = new THREE.Vector3(), tmpA = new THREE.Vector3();
+  function syncRemoteRovers(dt) {
+    remoteDriven.clear();
+    const k = 1 - Math.exp(-dt * 8);
+    for (const p of ctx.multi.list()) {
+      const rvs = p.st.rv;
+      if (!rvs || rvs[1] !== 0 || !p.st.rp) continue;
+      const i = rvs[0];
+      if (mode === 'drive' && RV.cur?.i === i) continue; // 내가 운전 중인 차는 내 것이 우선
+      if (remoteDriven.has(i)) continue; // 같은 차를 둘이 운전한다고 하면 먼저 온 사람만
+      remoteDriven.set(i, p.id);
+      const rover = base.rovers[i];
+      if (!rover) continue;
+      const g = rover.group;
+      const [x, z, yaw] = p.st.rp;
+      tmpA.copy(g.position);
+      if (Math.hypot(x - g.position.x, z - g.position.z) > 12) { g.position.x = x; g.position.z = z; } else {
+        g.position.x += (x - g.position.x) * k;
+        g.position.z += (z - g.position.z) * k;
+      }
+      g.position.y = H(g.position.x, g.position.z);
+      let dyaw = yaw - g.userData.yaw;
+      dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+      g.userData.yaw += dyaw * k;
+      base.tiltTo(g, g.position.x, g.position.z, g.userData.yaw);
+      rover.sync();
+      const fx = Math.cos(g.userData.yaw), fz = -Math.sin(g.userData.yaw);
+      const fwd = (g.position.x - tmpA.x) * fx + (g.position.z - tmpA.z) * fz;
+      for (const w of rover.wheels) w.axle.rotation.z -= fwd / 0.42;
+      const sp = spots.find((x2) => x2.key === `rover${i}`);
+      if (sp) sp.pos.set(g.position.x, g.position.y + 2.5, g.position.z);
+    }
+    // 내가 운전 중인 차의 빈자리를 실시간 접속자가 차지하면, 그 자리에 있던 NPC 친구는 내림
+    if (mode === 'drive' && RV.cur) {
+      const rs = remoteSeats(RV.cur.i);
+      for (let s2 = 1; s2 < 4; s2++) {
+        const b = RV.riders[s2];
+        if (b && rs.has(s2)) {
+          npcGetOff(b, RV.cur.group, s2, RV.cur);
+          RV.riders[s2] = null;
+        }
+      }
+    }
+    if (RV.bar) updateSeats();
+  }
+  // 실시간 접속자 아바타: 월면차에 탄 사람은 그 차의 좌석에 앉힌다
+  const crowd = createCrowd(scene, {
+    helmet: true,
+    place(p, e) {
+      const rvs = p.st.rv;
+      const rover = rvs && base.rovers[rvs[0]];
+      if (!rover) return false;
+      rover.group.localToWorld(e.av.root.position.copy(rover.seats[rvs[1]]));
+      e.av.root.quaternion.copy(rover.group.quaternion).multiply(SEAT_Q);
+      return true;
+    },
+  });
+  // 실시간으로 보내는 내 상태
+  function selfState() {
+    if (mode === 'drive' && RV.cur) {
+      const g = RV.cur.group;
+      return { p: me.root.position.toArray(), h: RV.yaw, m: 'sit', rv: [RV.cur.i, 0], rp: [g.position.x, g.position.z, RV.yaw] };
+    }
+    if (mode === 'ride' && RV.ride) return { p: me.root.position.toArray(), h: P.heading, m: 'sit', rv: [RV.ride.i, RV.ride.k] };
+    return { p: P.pos.toArray(), h: P.heading, m: me.state.mode };
   }
   const tmpV = new THREE.Vector3();
   function updateDrive(dt) {
@@ -1242,7 +1411,9 @@ export function createMoonScene(ctx) {
   function goSpot(s) {
     if (intro.on || photo.state !== 'idle') return;
     if (mode === 'drive') stopDrive();
+    else if (mode === 'ride') stopRide();
     else if (mode === 'scope') stopScope();
+    ctx.multi.warp();
     if (mode !== 'play') return;
     const tx = s.pos.x, tz = s.pos.z;
     let dx = P.pos.x - tx, dz = P.pos.z - tz;
@@ -1354,7 +1525,9 @@ export function createMoonScene(ctx) {
       endPhotoQuiet();
       if (mode === 'scope') stopScope();
       if (mode === 'drive') stopDrive();
+      if (mode === 'ride') stopRide();
       drink.stop();
+      crowd.clear();
       clearTimeout(toastTimer);
       firstLabel && scene.remove(firstLabel);
       firstLabel = null;
@@ -1380,6 +1553,10 @@ export function createMoonScene(ctx) {
         me.update(dt, t);
         if (input.pressed.has('f')) boardFriend();
         if (input.pressed.has('e')) interact();
+      } else if (mode === 'ride') {
+        updateRide(dt);
+        me.update(dt, t);
+        if (input.pressed.has('e')) stopRide();
       } else if (mode === 'scope') {
         me.update(dt, t);
         if (input.pressed.has('e') || input.pressed.has('escape')) stopScope();
@@ -1390,6 +1567,10 @@ export function createMoonScene(ctx) {
         if (input.pressed.has('e')) interact();
       }
       drink.update(dt, t);
+      // 실시간: 다른 사람이 운전하는 월면차 → 내 상태 보내기 → 다른 사람 아바타
+      syncRemoteRovers(dt);
+      if (!intro.on) ctx.multi.tick(selfState());
+      crowd.sync(ctx.multi.list(), dt, t);
       updateNpcs(dt, t);
       updateHammer(dt);
       dust.update(dt, G);
@@ -1442,4 +1623,8 @@ export function createMoonScene(ctx) {
     }
   }
   return api;
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }

@@ -71,7 +71,7 @@ export function createPlanetScene(ctx) {
     hud.querySelector('[data-k="fly"]').addEventListener('click', () => ctx.go('space', { near: id }));
     hud.querySelector('[data-k="save"]').addEventListener('click', () => {
       ctx.persist();
-      toast(ctx.account.isMember() ? `도감에 "${b.ko}" 카드를 저장했어요 · 내 계정(이 브라우저)에 보관돼요` : `도감에 "${b.ko}" 카드를 담았어요 · 비회원은 이번 접속에서만 유지 (회원가입하면 저장)`);
+      toast(`도감에 "${b.ko}" 카드를 저장했어요 · 이 브라우저에 보관돼요`);
     });
     hud.querySelector('[data-k="more"]').addEventListener('click', () => toast('자세히 알아보기: 탐사선 사진·구조 단면·관련 미션 (PHASE 2)'));
   }

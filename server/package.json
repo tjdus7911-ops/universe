@@ -1,0 +1,18 @@
+{
+  "name": "space-village-realtime",
+  "private": true,
+  "version": "0.1.0",
+  "description": "우주마을 실시간 서버 (Socket.IO) — 아직 배포하지 않음. 로컬 실행·부하 테스트용",
+  "type": "module",
+  "engines": { "node": ">=20.19" },
+  "scripts": {
+    "start": "node src/index.js",
+    "load": "node test/load.mjs"
+  },
+  "dependencies": {
+    "socket.io": "4.8.4"
+  },
+  "devDependencies": {
+    "socket.io-client": "4.8.4"
+  }
+}

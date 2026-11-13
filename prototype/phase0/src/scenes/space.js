@@ -5,6 +5,7 @@ import { createAstronaut } from '../world/astronaut.js';
 import { consumeLook, input } from '../core/input.js';
 import { createZeroG, createJetTrail } from '../core/zeroG.js';
 import { mountSceneUi } from '../ui/sceneUi.js';
+import { createCrowd } from '../net/crowd.js';
 import { h, I, project } from '../ui/dom.js';
 import { byId } from '../data/planets.js';
 
@@ -92,6 +93,8 @@ export function createSpaceScene(ctx) {
   me.setHelmet(true);
   me.root.scale.setScalar(SCALE);
   me.state.mode = 'float';
+  // 실시간 접속자 (같은 우주 탐험 구역)
+  const crowd = createCrowd(scene, { helmet: true, scale: SCALE, teleport: 60 });
   scene.add(me.root);
   const jets = createJetTrail(scene, { n: 220, size: 120, life: 1.4 });
   const zg = createZeroG({ speed: CRUISE, boostMul: BOOST / CRUISE, rise: 28, accel: 0.55, damp: 0.6, minY: -BAND, maxY: BAND, soft: 30, lean: 0.35, camDist: 12, zoomStep: 1.4 });
@@ -116,7 +119,7 @@ export function createSpaceScene(ctx) {
   function buildHud() {
     hud = h(`<div>
       <div class="tl">
-        <div class="glass chip"><span class="dot" style="background:var(--lavender);box-shadow:0 0 10px var(--lavender)"></span>우주 탐험 · ${ctx.profile.name} <small>행성을 찾아 날아가요</small></div>
+        <div class="glass chip"><span class="dot" style="background:var(--lavender);box-shadow:0 0 10px var(--lavender)"></span>우주 탐험 · ${ctx.profile.name} <small data-k="online">혼자 모드</small></div>
         <button class="glass chip found" data-k="found">${I.book}<b data-k="cnt">${countText()}</b></button>
       </div>
       <div class="tc"><div class="scale-badge">교육용 축척 — 실제 거리·크기와 많이 달라요</div></div>
@@ -150,7 +153,7 @@ export function createSpaceScene(ctx) {
         { k: 'level', icon: I.level, label: '수평', onTap: () => zg.level() },
       ],
       aux: [{ k: 'found', icon: I.book, label: '도감', onTap: () => openFound() }],
-      speaker: (m) => (m.kind === 'me' ? { root: me.root, y: 1.98 } : null),
+      speaker: (m) => (m.kind === 'me' ? { root: me.root, y: 1.98 } : m.peer ? { root: crowd.anchorOf(m.peer), y: 1.98 } : null),
     });
     const back = hud.querySelector('[data-k="station"]');
     back.addEventListener('click', () => {
@@ -244,6 +247,7 @@ export function createSpaceScene(ctx) {
     exit() {
       active = false;
       clearTimeout(toastTimer);
+      crowd.clear();
     },
     resize(w, hh) {
       camera.aspect = w / hh;
@@ -281,6 +285,8 @@ export function createSpaceScene(ctx) {
       me.state.mode = 'float';
       me.state.thrust = S.thrust;
       me.update(dt, t);
+      ctx.multi.tick({ p: S.pos.toArray(), h: 0, q: me.root.quaternion.toArray(), m: 'float' });
+      crowd.sync(ctx.multi.list(), dt, t);
       if (S.thrust > 0.05) jets.emit(me.nozzles, tmp.copy(S.want).normalize(), S.vel, S.thrust, SCALE * 2.2);
       jets.update(dt);
       // 3인칭 추적 카메라 (아바타를 따라 회전, 뒤집혀도 튀지 않음)

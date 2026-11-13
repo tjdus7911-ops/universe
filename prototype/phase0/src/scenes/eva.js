@@ -7,6 +7,7 @@ import { consumeLook, input, moveIntent } from '../core/input.js';
 import { h, I, project } from '../ui/dom.js';
 import { createZeroG } from '../core/zeroG.js';
 import { mountSceneUi } from '../ui/sceneUi.js';
+import { createCrowd } from '../net/crowd.js';
 
 // 장면 2 — 우주 유영 (자유 유영) / 장면 3 — 우주 쓰레기 수거 미션 (같은 우주 공간, 모드만 다름)
 let _glow;
@@ -94,6 +95,7 @@ export function createEvaScene(ctx, opts = {}) {
   const me = createAstronaut({ preset: ctx.profile.preset, skin: ctx.profile.skin, hair: ctx.profile.hair, name: ctx.profile.name, helmet: true });
   me.setHelmet(true);
   me.state.mode = 'float';
+  const crowd = createCrowd(scene, { helmet: true, teleport: 10 });
   const start = mission ? new THREE.Vector3(5.0, 4.5, 25.5) : new THREE.Vector3(13.0, 5.0, 21.0);
   me.root.position.copy(start);
   scene.add(me.root);
@@ -143,7 +145,7 @@ export function createEvaScene(ctx, opts = {}) {
             <div class="h">인공위성 파편 수거 <span data-k="cnt">0</span>/5</div>
             <div class="prog">${'<i></i>'.repeat(5)}</div>
             <div class="meta"><span>남은 시간 <b data-k="time">05:00</b></span><span>보상 ⭐30 · 서버 확인 후 지급</span></div>
-          </div>` : `<div class="glass chip"><span class="dot" style="background:var(--orange);box-shadow:0 0 10px var(--orange)"></span>정거장 외부 · 우주 유영 구역</div>`}
+          </div>` : `<div class="glass chip"><span class="dot" style="background:var(--orange);box-shadow:0 0 10px var(--orange)"></span>정거장 외부 · 우주 유영 구역 <small data-k="online">혼자 모드</small></div>`}
         <div class="glass stat-col">
           <div class="r"><span>추진제(부스트)</span><div class="meter"><i data-k="boost" style="width:100%"></i></div></div>
           <div class="r"><span>정거장까지</span><b data-k="dist">0 m</b></div>
@@ -177,7 +179,7 @@ export function createEvaScene(ctx, opts = {}) {
         mission ? { k: 'collect', icon: I.hand, label: '수거', hold: 'act', disabled: true } : { k: 'level', icon: I.level, label: '수평', onTap: () => zg.level() },
       ],
       aux: mission ? [{ k: 'level', icon: I.level, label: '수평', onTap: () => zg.level() }] : [],
-      speaker: (m) => (m.kind === 'me' ? { root: me.root, y: 1.98 } : null),
+      speaker: (m) => (m.kind === 'me' ? { root: me.root, y: 1.98 } : m.peer ? { root: crowd.anchorOf(m.peer), y: 1.98 } : null),
     });
     hud.querySelector('[data-k="ret"]').addEventListener('click', goBack);
     setTimeout(() => hud.querySelector('[data-k="guide"]')?.remove(), 9000);
@@ -354,7 +356,7 @@ export function createEvaScene(ctx, opts = {}) {
         rot: (yaw, pitch) => { zg.s.quat.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'))); },
       };
     },
-    exit() { st.leaving = false; },
+    exit() { st.leaving = false; crowd.clear(); },
     resize(w, hh) {
       camera.aspect = w / hh;
       camera.fov = w / hh < 0.8 ? 66 : 55;
@@ -366,6 +368,9 @@ export function createEvaScene(ctx, opts = {}) {
       const ph = physics(dt, look);
       me.state.mode = 'float';
       me.update(dt, t);
+      // 실시간: 같은 유영 구역의 다른 사람
+      ctx.multi.tick({ p: me.root.position.toArray(), h: 0, q: me.root.quaternion.toArray(), m: 'float' });
+      crowd.sync(ctx.multi.list(), dt, t);
       station.update(t);
       earth.update(dt);
       earth.mesh.rotation.y += dt * 0.0005;

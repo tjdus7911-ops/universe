@@ -11,6 +11,7 @@ import { mountSceneUi } from '../ui/sceneUi.js';
 import { EMOTES, emoteFromKeys } from '../ui/emotes.js';
 import { createDrink } from '../world/water.js';
 import { mountSpots } from '../ui/spots.js';
+import { createCrowd } from '../net/crowd.js';
 
 // 장면 1 — 우주 정거장 중앙 광장: 거대한 지구 전망창
 export function createStationScene(ctx) {
@@ -75,6 +76,8 @@ export function createStationScene(ctx) {
 
   const cam = { yaw: 0.0, pitch: 0.12, dist: 6.0 };
   const target = new THREE.Vector3();
+  // 실시간 접속자 (같은 정거장에 있는 다른 사람)
+  const crowd = createCrowd(scene, { helmet: false });
   let hud, spotUi = null, prompt, nearKey = null, toastTimer;
   const HS = interior.hotspots;
   const spots = [
@@ -90,7 +93,7 @@ export function createStationScene(ctx) {
     const m = ctx.isMobile();
     hud = h(`<div>
       <div class="tl">
-        <div class="glass chip"><span class="dot"></span>우주 정거장 · 중앙 광장 <small>채널 3 · 18/30명</small></div>
+        <div class="glass chip"><span class="dot"></span>우주 정거장 · 중앙 광장 <small data-k="online">혼자 모드</small></div>
         <div class="glass chip"><span class="avatar-dot">나</span>${ctx.profile.name}${coinsChip(1240)}</div>
       </div>
       <div class="tr">
@@ -124,6 +127,7 @@ export function createStationScene(ctx) {
       // 채팅 말풍선: 나 또는 같은 이름의 친구
       speaker: (m) => {
         if (m.kind === 'me') return me.root;
+        if (m.peer) return crowd.anchorOf(m.peer);
         const f = npcs.find((x) => x.n.o.name === m.who);
         if (!f) return null;
         f.chatT = Math.min(9, 4.2 + m.text.length * 0.09);
@@ -188,6 +192,7 @@ export function createStationScene(ctx) {
     const hs = s.pos;
     const p = me.root.position;
     if (Math.hypot(p.x - hs.x, p.z - hs.z) > s.r * 0.85) {
+      ctx.multi.warp();
       const r = Math.hypot(hs.x, hs.z) || 1;
       const k = Math.max(0, r - 3.0) / r;
       p.set(hs.x * k, 0, hs.z * k);
@@ -264,7 +269,7 @@ export function createStationScene(ctx) {
       if (p.id === 'airlock') toast('정거장 복귀 완료 — 에어록 앞 안전 구역이에요');
       else if (p.id === 'safe' || p.id === 'gate') toast('궤도 정거장 도착 — 우주선 탑승장 앞이에요');
     },
-    exit() {},
+    exit() { crowd.clear(); },
     resize(w, hh) {
       camera.aspect = w / hh;
       camera.fov = w / hh < 0.8 ? 64 : 52;
@@ -288,6 +293,9 @@ export function createStationScene(ctx) {
       if (drink.active && emote !== 'drink') drink.cancel();
       me.update(dt, t);
       drink.update(dt, t);
+      // 실시간: 내 상태 보내기 + 다른 사람 아바타
+      ctx.multi.tick({ p: me.root.position.toArray(), h: me.root.rotation.y, m: me.state.mode });
+      crowd.sync(ctx.multi.list(), dt, t);
       for (const { a, n } of npcs) {
         if (n.mode === 'walk') {
           const ang = t * 0.25;

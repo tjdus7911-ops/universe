@@ -196,6 +196,10 @@ body { display: flex; flex-direction: column; }
 .steps b { color: var(--mint); }
 .picker { position: absolute; right: 18px; top: 50%; transform: translateY(-50%); width: 340px; padding: 18px; display: grid; gap: 14px; }
 .picker h3 { margin: 0; font-size: 20px; }
+.picker .nick { display: grid; gap: 6px; font-size: 13px; font-weight: 800; }
+.picker .nick small { color: var(--text-2); font-weight: 600; }
+.picker .nick input { font: inherit; font-size: 15px; font-weight: 700; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.08); color: var(--text); outline: none; }
+.picker .nick input:focus { border-color: var(--mint); }
 .swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .sw { aspect-ratio: 1; border-radius: 16px; border: 2px solid transparent; cursor: pointer; display: grid; place-items: end center; padding-bottom: 6px; font-size: 11px; font-weight: 800; color: #141b3d; }
 .sw.on { border-color: #fff; box-shadow: 0 0 0 3px rgba(111, 240, 210, 0.6); }
@@ -480,6 +484,8 @@ body { display: flex; flex-direction: column; }
 .drive-bar .seats i { width: 10px; height: 10px; border-radius: 3px; border: 1.5px solid rgba(255, 255, 255, 0.5); display: inline-block; }
 .drive-bar .seats i.on { background: var(--mint); border-color: var(--mint); }
 .drive-bar .btn { padding: 8px 12px; font-size: 13px; border-radius: 11px; }
-.is-mobile .drive-bar { top: calc(104px + var(--safe-t)); gap: 6px; padding: 7px 8px 7px 12px; font-size: 12px; }
-.is-mobile .drive-bar .btn { padding: 8px 10px; font-size: 12.5px; }
+/* 모바일: 운전 중에는 오른쪽 아래 조작 버튼이 숨으니, 그 자리에 세로로 (위쪽 이름표와 겹치지 않게) */
+.is-mobile .drive-bar { top: auto; left: auto; right: 12px; bottom: calc(22px + var(--safe-b)); transform: none; flex-direction: column; align-items: stretch; gap: 6px; padding: 10px; font-size: 12px; min-width: 132px; }
+.is-mobile .drive-bar .seats { justify-content: center; }
+.is-mobile .drive-bar .btn { padding: 10px 10px; font-size: 13px; }
 .driving .mc-right, .driving .mr, .driving .emote-panel { display: none !important; }

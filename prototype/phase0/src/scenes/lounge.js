@@ -11,6 +11,7 @@ import { emoteFromKeys, EMOTES } from '../ui/emotes.js';
 import { mountSceneUi } from '../ui/sceneUi.js';
 import { createDrink } from '../world/water.js';
 import { mountSpots } from '../ui/spots.js';
+import { createCrowd } from '../net/crowd.js';
 
 // 장면 — 달 기지 라운지 (실내): 상점 · 탐험 도감 벽 · 우주선 꾸미기 코너 · 창가 소파
 const G = GRAVITY.find((x) => x.id === 'moon').g;
@@ -337,6 +338,8 @@ export function createLoungeScene(ctx) {
   // HUD
   let hud = null, spotUi = null, prompt = null, nearKey = null, toastTimer = 0, jumpQueued = false, sitting = false;
   let chatT = { dancer: 0 };
+  // 실시간 접속자 (같은 라운지에 있는 다른 사람)
+  const crowd = createCrowd(scene, { helmet: false });
   function toast(html, ms = 3400) {
     ctx.hud.querySelector('.toast')?.remove();
     const t = h(`<div class="toast glass">${html}</div>`);
@@ -347,7 +350,7 @@ export function createLoungeScene(ctx) {
   function buildHud() {
     hud = h(`<div>
       <div class="tl">
-        <div class="glass chip"><span class="dot"></span>달 기지 라운지 · 실내 <small>채널 1 · 9명</small></div>
+        <div class="glass chip"><span class="dot"></span>달 기지 라운지 · 실내 <small data-k="online">혼자 모드</small></div>
         <div class="glass chip"><span class="avatar-dot">나</span>${ctx.profile.name}${coinsChip(1240)}</div>
       </div>
       <div class="tr">
@@ -383,6 +386,7 @@ export function createLoungeScene(ctx) {
       // 채팅 말풍선: 나 · 코스모(춤추는 친구) · 별헤는밤(소파)
       speaker: (m) => {
         if (m.kind === 'me') return me.root;
+        if (m.peer) return crowd.anchorOf(m.peer);
         if (m.who === '코스모') { chatT.dancer = Math.min(9, 4.2 + m.text.length * 0.09); return dancer.root; }
         if (m.who === '별헤는밤') return sitter.root;
         return null;
@@ -399,6 +403,7 @@ export function createLoungeScene(ctx) {
     if (d < 0.05) { dx = 0; dz = 1; d = 1; }
     const stand = Math.min(d, Math.max(1.3, s.r * 0.55));
     if (d - stand > 0.3) {
+      ctx.multi.warp();
       sitting = false;
       P.pos.set(tx + (dx / d) * stand, 0, tz + (dz / d) * stand);
       collide(P.pos);
@@ -562,6 +567,7 @@ export function createLoungeScene(ctx) {
     },
     exit() {
       clearTimeout(toastTimer);
+      crowd.clear();
     },
     resize(w, hh) {
       camera.aspect = w / hh;
@@ -632,6 +638,9 @@ export function createLoungeScene(ctx) {
       if (drink.active && P.emote !== 'drink') drink.cancel();
       me.update(dt, t);
       drink.update(dt, t);
+      // 실시간: 내 상태 보내기 + 다른 사람 아바타
+      ctx.multi.tick({ p: P.pos.toArray(), h: P.heading, m: me.state.mode });
+      crowd.sync(ctx.multi.list(), dt, t);
       dancer.state.mode = 'dance';
       dancer.update(dt, t);
       sitter.update(dt, t);

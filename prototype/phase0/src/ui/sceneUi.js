@@ -11,7 +11,8 @@ export function mountSceneUi(ctx, hud, o) {
   let mc = null;
   const onSay = (m) => {
     const a = o.speaker?.(m);
-    if (a) say(a.root || a, m.text, { me: m.kind === 'me', y: a.y });
+    const root = a && (a.isObject3D ? a : a.root);
+    if (root) say(root, m.text, { me: m.kind === 'me', y: a.isObject3D ? undefined : a.y });
   };
   const chat = mountChat(ctx, hud, { room: o.room, title: o.chatTitle, seed: o.seed, npcs: o.npcs, onBadge: (n) => mc?.badge('chat', n), onSay });
   const aux = [{ k: 'chat', icon: I.chat, label: '채팅', onTap: () => chat.toggle() }];
@@ -29,5 +30,16 @@ export function mountSceneUi(ctx, hud, o) {
   tb.addEventListener('click', () => ctx.travel(o.here));
   mr.appendChild(tb);
   if (o.emote) mountEmotes(mr, o.emote, { canDrink: o.canDrink });
+  // 실시간 접속 상태 (혼자 모드 · 연결 중 · n명 함께) — 장소 이름표의 작은 글씨
+  const online = hud.querySelectorAll('[data-k="online"]');
+  if (online.length && ctx.multi) {
+    const upd = () => {
+      if (!hud.isConnected) { clearInterval(timer); return; }
+      const t = ctx.multi.statusText();
+      online.forEach((el) => { if (el.textContent !== t) el.textContent = t; });
+    };
+    const timer = setInterval(upd, 700);
+    upd();
+  }
   return { chat, mc };
 }

@@ -3,7 +3,7 @@ import { h, project } from './dom.js';
 // 위치 풍선 (3D 이름표) — PC는 클릭, 모바일은 탭하면 그 자리 앞으로 바로 이동해서 바로 실행한다.
 //  · 가까운 것부터 놓고, 화면에서 겹치면 먼 쪽 풍선을 숨긴다.
 //  · 멀리 있는 풍선은 작게 + 거리 표시, 바로 앞에 있는 풍선은 할 일('라운지 들어가기')까지 보여 준다.
-// spots: [{ key, pos: Vector3, label, act, cls, r }]  · onPick(spot) = 이동 + 실행 (장면이 정함)
+// spots: [{ key, pos: Vector3, label, act, cls, r, max? }] · max = 이 풍선이 보이는 최대 거리(없으면 장면 기본값)  · onPick(spot) = 이동 + 실행 (장면이 정함)
 export function mountSpots(ctx, spots, onPick) {
   const els = spots.map((s) => {
     const el = h(`<button type="button" class="pill-label ${s.cls || ''}" data-spot="${s.key}" aria-label="${s.label} · ${s.act}">
@@ -33,7 +33,7 @@ export function mountSpots(ctx, spots, onPick) {
         const near = s.key === nearKey;
         const far = !near && dist > farAt;
         const pr = project(s.pos, camera, w, hgt);
-        let vis = !pr.behind && pr.x > -40 && pr.x < w + 40 && pr.y > minY && pr.y < hgt + 30 && dist < max;
+        let vis = !pr.behind && pr.x > -40 && pr.x < w + 40 && pr.y > minY && pr.y < hgt + 30 && dist < (s.max ?? max);
         if (vis) {
           const lw = near ? (s.label.length + s.act.length) * 12 + 60 : s.label.length * (far ? 11 : 13) + (far ? 70 : 40);
           const box = { x0: pr.x - lw / 2, x1: pr.x + lw / 2, y0: pr.y - (near ? 44 : 32), y1: pr.y };

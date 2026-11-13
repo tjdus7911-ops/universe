@@ -7,6 +7,7 @@ import { HAIRS, SKINS } from './world/astronaut.js';
 import { account } from './core/account.js';
 import { openTravel } from './ui/travel.js';
 import { initBubbles, updateBubbles, clearBubbles, bubbleCount } from './ui/bubbles.js';
+import { createMulti } from './net/multi.js';
 
 // 시안 내비게이터: 장면 목록 (순서 = 검토 순서)
 const SCENES = [
@@ -59,19 +60,33 @@ function applySaved(data) {
   if (Array.isArray(pg.discovered)) pg.discovered.forEach((x) => progress.discovered.add(x));
   if (pg.seenIntro) progress.seenIntro = true;
 }
+// 회원가입·로그인 화면은 숨겼다. 예전에 만든 로컬 계정이 있으면 그대로 이어 쓰고,
+// 없으면 닉네임·아바타·진행 상태를 이 브라우저(localStorage)에 저장한다.
+const LOCAL = 'sv.local.v1';
 const restored = account.restore();
 if (restored) {
   profile.name = restored.user.name;
   applySaved(restored.data);
+} else {
+  try {
+    const d = JSON.parse(localStorage.getItem(LOCAL) || 'null');
+    if (d) {
+      if (typeof d.profile?.name === 'string' && d.profile.name.length >= 2) profile.name = d.profile.name.slice(0, 12);
+      applySaved(d);
+    }
+  } catch { /* 저장소를 못 쓰는 환경 */ }
 }
 let saveTimer = 0;
 function persist() {
-  if (!account.isMember()) return;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => account.save({
-    profile: { preset: profile.preset, skin: profile.skin, hair: profile.hair },
-    progress: { discovered: [...progress.discovered], seenIntro: progress.seenIntro },
-  }), 250);
+  saveTimer = setTimeout(() => {
+    const data = {
+      profile: { name: profile.name, preset: profile.preset, skin: profile.skin, hair: profile.hair },
+      progress: { discovered: [...progress.discovered], seenIntro: progress.seenIntro },
+    };
+    if (account.isMember()) account.save(data);
+    else { try { localStorage.setItem(LOCAL, JSON.stringify(data)); } catch { /* 무시 */ } }
+  }, 250);
 }
 const ctx = {
   renderer: R,
@@ -97,6 +112,9 @@ const ctx = {
     progress.seenIntro = false;
   },
 };
+
+// 멀티플레이: 아티팩트 실시간 방(초대받은 사람끼리) 또는 ?server= 우주마을 서버 — 없으면 혼자 모드
+ctx.multi = createMulti(ctx);
 
 const cache = new Map();
 let current = null;
@@ -142,6 +160,7 @@ async function go(id, p = {}) {
   ctx.params = p;
   current = next;
   applyDevice();
+  ctx.multi.setScene(id); // 같은 존 사람들끼리만 보이고 들리게
   next.enter?.(p);
   resize();
   document.querySelectorAll('#review [data-s]').forEach((b) => b.classList.toggle('on', b.dataset.s === id));
@@ -239,3 +258,4 @@ textureManager.onLoad = () => { busy = false; };
 window.__go = go;
 window.__frames = () => frames;
 window.__bubbles = () => bubbleCount();
+window.__multi = () => ({ mode: ctx.multi.mode, zone: ctx.multi.zone, connected: ctx.multi.connected(), peers: ctx.multi.list().map((p) => ({ id: p.id, name: p.name, m: p.st.m, p: p.st.p, rv: p.st.rv || null })), status: ctx.multi.statusText() });

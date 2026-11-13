@@ -2,7 +2,7 @@
 
 우주마을에 들어가는 코드·데이터·에셋의 출처와 라이선스를 파일 단위로 기록합니다. 라이선스가 불분명한 것은 쓰지 않습니다.
 
-기준일: 2026-11-12 · 대상: `prototype/phase0` (PHASE 0 3D 시안)
+기준일: 2026-11-13 · 대상: `prototype/phase0` (PHASE 0 3D 시안), `server/`, `packages/shared/`
 
 ## 외부 라이브러리·데이터
 
@@ -12,6 +12,8 @@
 | Vite | 8.3.8 | MIT | 개발 서버·빌드 (배포 파일에는 포함되지 않음) | https://github.com/vitejs/vite |
 | world-atlas | 2.0.2 | ISC (원본 데이터: Natural Earth, 퍼블릭 도메인) | 지구 육지 텍스처 생성 (`tools/gen-land.mjs`) | https://github.com/topojson/world-atlas · https://www.naturalearthdata.com/ |
 | topojson-client | 3.1.0 | ISC | world-atlas 데이터 변환 (텍스처 생성 도구) | https://github.com/topojson/topojson-client |
+| socket.io-client | 4.8.4 | MIT | 시안의 서버 연결 (`src/net/multi.js`, `?server=`일 때만 불러옴) | https://github.com/socketio/socket.io |
+| socket.io | 4.8.4 | MIT | 실시간 서버 (`server/src/index.js`) | https://github.com/socketio/socket.io |
 | webgl-noise (Ashima Arts · Stefan Gustavson) | — | MIT | 달 지형·행성 셰이더 노이즈 (`src/core/glsl.js`, 저작권 표기 포함) | https://github.com/ashima/webgl-noise |
 
 ## 직접 만든 것
@@ -41,4 +43,4 @@
 
 행성 수치의 출처는 기획서 19장과 `prototype/phase0/src/data/planets.js`의 `SOURCES`에 링크와 함께 적혀 있습니다. 달 표면 물 마시기(헬멧 목 고리 안쪽 빨대)는 스미소니언 항공우주박물관의 아폴로 우주복 음료 장치 설명을 참고했습니다: https://airandspace.si.edu/collection-objects/drinking-device-suit/nasm_A19781916000
 
-이번 개선에서 새로 들어온 외부 파일·에셋은 없습니다.
+11-13 개선에서 새로 들어온 외부 코드는 socket.io·socket.io-client(MIT, 위 표)뿐이고, 새 그림·소리·모델 파일은 없습니다. 월면차 24대와 다른 사람 아바타는 기존 코드 모델을 다시 쓴 것입니다.

@@ -230,9 +230,12 @@ export function createMulti(ctx) {
       return n > 1 ? `실시간 · ${n}명 함께` : '실시간 · 나 혼자';
     },
   };
-  // 연결 시작: ?server= 가 있으면 우주마을 서버, 아니면 아티팩트 실시간 방 (없으면 혼자 모드)
+  // 연결 시작: ?server= 가 있거나 우주마을 서버가 내보낸 페이지면 우주마을 서버, 아니면 아티팩트 실시간 방 (없으면 혼자 모드)
   (async () => {
+    // 우주마을 서버가 화면까지 같이 내보낼 때(공개 웹페이지)는 index.html에 <meta name="sv-server" content="same-origin">이 붙는다 → 같은 주소로 접속
+    const same = document.querySelector('meta[name="sv-server"]')?.content === 'same-origin';
     if (serverUrl && /^(https?|wss?):\/\//i.test(serverUrl)) await startServer(serverUrl);
+    else if (same) await startServer(location.origin);
     else await startRoom();
   })();
   return api;

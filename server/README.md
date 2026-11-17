@@ -32,6 +32,30 @@ STATS_TOKEN=아무문자열 npm start          # http://localhost:8787
 | `STATS_TOKEN` | (없음) | 정하면 `/stats`가 켜지고, 요청 헤더 `x-stats-token`이 같아야 응답 |
 | `TRUST_PROXY` | (없음) | `1`이면 `x-forwarded-for`로 IP를 셈 (프록시 뒤에서만) |
 
+## 공개 웹페이지 배포 (Render 무료)
+
+저장소 맨 위의 `render.yaml`(Render 블루프린트)이 웹 서비스 1개를 만듭니다. 이 서비스가 시안을 빌드해 화면(`prototype/phase0/dist`)과 실시간 서버를 **같은 주소**로 내보냅니다. 그래서 링크만 열면 따로 설정하지 않아도 같은 서버로 연결됩니다.
+
+1. render.com에 GitHub 계정으로 가입하고, `tjdus7911-ops/universe` 저장소 접근을 허용합니다. 무료 플랜은 카드 없이 시작할 수 있다고 안내되어 있습니다. 가입 화면에서 카드를 요구하면 진행하지 말고 알려 주세요.
+2. Dashboard → **New → Blueprint** → 저장소 `universe`, 브랜치 `phase0/planning` 선택 → **Apply**.
+3. 빌드(2~4분)가 끝나면 `https://space-village-xxxx.onrender.com` 같은 주소가 생깁니다. 이 주소를 공유하면 됩니다.
+
+설정값(`render.yaml`):
+
+| 값 | 뜻 |
+|---|---|
+| `STATIC_DIR=prototype/phase0/dist` | 화면을 같이 내보냄. 이때 실시간 접속은 같은 주소에서 온 브라우저만 받음(다른 사이트에서 몰래 붙는 접속 차단) |
+| `NODE_ENV=production` | 브라우저가 아닌 접속(Origin 없음)은 거부 |
+| `CHANNEL_CAP=30` · `MAX_PLAYERS=120` · `MAX_PER_IP=8` | 공간별 채널 정원, 전체 상한, IP당 접속 수 |
+| `STATS_TOKEN` | Render가 무작위로 만듦. `/stats`는 이 값을 `x-stats-token` 헤더로 보내야 열림 |
+
+무료 플랜의 제약:
+
+- 15분 동안 접속이 없으면 서비스가 잠들고, 다음 사람이 들어올 때 깨어나는 데 1분쯤 걸립니다(그동안 로딩 화면).
+- 대역폭이 한 달 5 GB로 줄었다는 2026년 보도가 있습니다. 이번 부하 테스트 기준으로 한 사람당 실시간 데이터가 초당 약 8 KB(시간당 약 30 MB)입니다. 10명이 1시간 놀면 실시간 데이터만 약 0.3 GB이고, 첫 접속 때 화면 파일도 한 사람당 수 MB씩 내려받습니다. Render 대시보드에서 사용량을 확인해 주세요.
+- 서버가 잠들거나 다시 배포되면 접속이 끊기고 자동으로 다시 연결됩니다. 저장하는 데이터는 없습니다.
+- 이 무료 서버에서 몇 명까지 버티는지는 아직 재지 않았습니다. 배포 뒤 `test/load.mjs`로 다시 측정합니다(봇 접속은 Origin 헤더가 필요해서, 테스트할 때만 `ALLOWED_ORIGINS`에 테스트 주소를 넣거나 `NODE_ENV`를 잠시 바꿉니다).
+
 ## 클라이언트를 믿지 않는 부분
 
 - 모양·범위·길이: `packages/shared/protocol.js`의 `sanitizeState`·`sanitizeProfile`·`cleanText`로 확인합니다. 공간(존) 밖 위치는 안쪽으로 당깁니다.

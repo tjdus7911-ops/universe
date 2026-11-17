@@ -1,0 +1,30 @@
+# Render 블루프린트 — 우주마을 공개 멀티플레이 웹페이지 (무료 웹 서비스 1개)
+# 서버(server/)가 시안 화면(prototype/phase0/dist)까지 같은 주소로 내보낸다.
+# 무료 플랜: 15분 동안 접속이 없으면 잠들고, 다음 접속 때 깨어나는 데 1분쯤 걸린다.
+services:
+  - type: web
+    name: space-village
+    runtime: node
+    plan: free
+    branch: phase0/planning
+    autoDeploy: true
+    buildCommand: cd prototype/phase0 && npm ci --include=dev && npm run build && cd ../../server && npm ci --omit=dev
+    startCommand: node server/src/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.12.0
+      - key: NODE_ENV
+        value: production
+      - key: STATIC_DIR
+        value: prototype/phase0/dist
+      - key: TRUST_PROXY
+        value: "1"
+      - key: CHANNEL_CAP
+        value: "30"
+      - key: MAX_PLAYERS
+        value: "120"
+      - key: MAX_PER_IP
+        value: "8"
+      - key: STATS_TOKEN
+        generateValue: true

@@ -50,6 +50,7 @@ npm run build    # dist/ 에 정적 파일 생성
 |---|---|---|
 | Claude 아티팩트 실시간 방 | 아티팩트를 공유받은 claude.ai 사용자. 공개 링크로만 연 사람은 혼자 모드 | 아티팩트에서 열면 자동 |
 | 우주마을 서버 (`server/`) | 주소를 아는 누구나. 공간마다 채널 정원 30명 | 주소 뒤에 `?server=http://localhost:8787` |
+| 공개 웹페이지 (Render 무료) | 링크를 받은 누구나(로그인 없음). 서버가 화면까지 같은 주소로 내보내고 자동으로 연결 | 저장소의 `render.yaml`로 배포 — [`server/README.md`](server/README.md#공개-웹페이지-배포-render-무료) |
 
 ```bash
 cd server && npm ci && npm start         # http://localhost:8787

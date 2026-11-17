@@ -12,6 +12,9 @@
 //  · 횟수: 이벤트 종류별 토큰 버킷. 너무 많이 보내면 버리고, 계속되면 연결을 끊는다.
 //  · 운영 통계(/stats)는 STATS_TOKEN 헤더가 맞을 때만. 토큰을 정하지 않으면 /stats 자체가 없다.
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import zlib from 'node:zlib';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { Server } from 'socket.io';
 import { PROTOCOL, ZONES, MODES, cleanText, sanitizeProfile, sanitizeState } from '../../packages/shared/protocol.js';
@@ -24,9 +27,65 @@ const TICK_MS = 100;
 const STATS_TOKEN = process.env.STATS_TOKEN || '';
 const PROD = process.env.NODE_ENV === 'production';
 const ORIGINS = (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
-if (PROD && !ORIGINS.length) {
-  console.error('운영 모드에서는 ALLOWED_ORIGINS(허용할 웹 주소, 쉼표로 구분)를 꼭 정해야 합니다.');
+// STATIC_DIR: 시안 화면(prototype/phase0/dist)을 이 서버가 같이 내보낼 때. 그때는 같은 주소에서 온 접속만 받는다.
+const STATIC_DIR = process.env.STATIC_DIR ? path.resolve(process.env.STATIC_DIR) : '';
+if (PROD && !ORIGINS.length && !STATIC_DIR) {
+  console.error('운영 모드에서는 ALLOWED_ORIGINS(허용할 웹 주소, 쉼표로 구분)를 정하거나 STATIC_DIR로 화면을 같이 내보내야 합니다.');
   process.exit(1);
+}
+
+// ---------- 정적 파일 (시안 화면) ----------
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon' };
+const staticCache = new Map(); // 경로 → { body, gz, type } (배포 후 파일이 바뀌지 않으므로 메모리에 한 번만 읽음)
+function loadStatic(rel) {
+  if (staticCache.has(rel)) return staticCache.get(rel);
+  const full = path.join(STATIC_DIR, rel);
+  if (!full.startsWith(STATIC_DIR + path.sep)) return null; // 폴더 밖으로 나가는 경로 차단
+  let body;
+  try {
+    if (!fs.statSync(full).isFile()) return null;
+    body = fs.readFileSync(full);
+  } catch { return null; }
+  const ext = path.extname(full).toLowerCase();
+  const type = TYPES[ext] || 'application/octet-stream';
+  if (ext === '.html') body = Buffer.from(body.toString('utf8').replace('</head>', '    <meta name="sv-server" content="same-origin" />\n  </head>'));
+  const gz = /^(text|application\/json|image\/svg)/.test(type) ? zlib.gzipSync(body, { level: 9 }) : null;
+  const ent = { body, gz, type, html: ext === '.html' };
+  staticCache.set(rel, ent);
+  return ent;
+}
+function serveStatic(req, res) {
+  if (!STATIC_DIR || (req.method !== 'GET' && req.method !== 'HEAD')) return false;
+  let p;
+  try { p = decodeURIComponent(new URL(req.url, 'http://x').pathname); } catch { return false; }
+  if (p.endsWith('/')) p += 'index.html';
+  const ent = loadStatic(p.replace(/^\/+/, ''));
+  if (!ent) return false;
+  const useGz = ent.gz && /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''));
+  const headers = {
+    'content-type': ent.type,
+    'cache-control': ent.html ? 'no-cache' : p.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'public, max-age=86400',
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
+  };
+  if (ent.gz) headers.vary = 'accept-encoding';
+  if (useGz) headers['content-encoding'] = 'gzip';
+  const body = useGz ? ent.gz : ent.body;
+  headers['content-length'] = body.length;
+  res.writeHead(200, headers);
+  res.end(req.method === 'HEAD' ? undefined : body);
+  return true;
+}
+
+// 접속 허용: ALLOWED_ORIGINS에 있는 주소, 또는 화면을 같이 내보낼 때는 같은 주소(Origin의 호스트 = 요청 호스트)
+function originAllowed(req) {
+  const origin = req.headers.origin;
+  if (!origin) return !PROD; // 브라우저가 아닌 접속은 개발 중에만
+  if (ORIGINS.includes(origin)) return true;
+  if (STATIC_DIR) {
+    try { return new URL(origin).host === req.headers.host; } catch { return false; }
+  }
+  return !ORIGINS.length && !PROD;
 }
 
 // ---------- 통계 ----------
@@ -64,12 +123,14 @@ const httpServer = http.createServer((req, res) => {
     res.end(JSON.stringify(body));
     return;
   }
+  if (serveStatic(req, res)) return;
   res.writeHead(404);
   res.end();
 });
 
 const io = new Server(httpServer, {
-  cors: { origin: ORIGINS.length ? ORIGINS : true },
+  cors: { origin: ORIGINS.length ? ORIGINS : STATIC_DIR ? false : true },
+  allowRequest: (req, cb) => cb(null, originAllowed(req)),
   maxHttpBufferSize: 4096, // 한 메시지 최대 4 KB
   pingInterval: 20000,
   pingTimeout: 20000,
@@ -283,5 +344,5 @@ setInterval(() => {
 }, TICK_MS);
 
 httpServer.listen(PORT, () => {
-  console.log(`우주마을 실시간 서버 :${PORT} · 채널 정원 ${CAP} · 허용 주소 ${ORIGINS.length ? ORIGINS.join(', ') : '(개발: 모두)'} · /stats ${STATS_TOKEN ? '켜짐(토큰 필요)' : '꺼짐'}`);
+  console.log(`우주마을 실시간 서버 :${PORT} · 채널 정원 ${CAP} · 허용 주소 ${ORIGINS.length ? ORIGINS.join(', ') : STATIC_DIR ? '(같은 주소만)' : '(개발: 모두)'} · /stats ${STATS_TOKEN ? '켜짐(토큰 필요)' : '꺼짐'}${STATIC_DIR ? ` · 화면 ${STATIC_DIR}` : ''}`);
 });

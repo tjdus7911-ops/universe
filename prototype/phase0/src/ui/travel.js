@@ -7,6 +7,7 @@ export const DESTS = [
   { id: 'lounge', p: {}, ico: '🛋️', name: '달 기지 라운지', sub: '상점 · 탐험 도감 벽 · 물 마시기' },
   { id: 'station', p: { id: 'safe' }, ico: '🛰️', name: '궤도 정거장', sub: '거대한 지구 전망 · 행성 관측실 · 우주선' },
   { id: 'space', p: {}, ico: '🔭', name: '우주 탐험', sub: '아바타로 날아다니며 행성을 발견해요' },
+  { id: 'climb', p: {}, ico: '🗼', name: '우주 엘리베이터', sub: '친구들과 보스를 물리치며 오르는 협동 게임' },
 ];
 
 export function openTravel(ctx, here, opts = {}) {

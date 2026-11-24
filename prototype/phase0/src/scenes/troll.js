@@ -28,7 +28,8 @@ const FAKE_FLOOR = { x0: 56, x1: 60 }; // 진짜 바닥과 똑같이 생겼지�
 const COLLAPSE = { x0: 160, x1: 168 }; // 밟는 순간 1 m씩 차례로 떨어지는 바닥 (멈추지 않으면 건넘)
 const HIDDEN = [{ x: 28, y: 2.5 }, { x: 29, y: 2.5 }, { x: 150, y: 2.5 }, { x: 151, y: 2.5 }]; // 아래에서 머리로 부딪혀야 나타나는 투명 블록 (1×1, y = 아랫면)
 const CRATES = [{ x: 36, y: 3.2, kind: 'star' }, { x: 38, y: 3.2, kind: 'star' }, { x: 40, y: 3.2, kind: 'alien' }];
-const SPIKES = [{ x0: 66, x1: 68.5, trig: [64.2, 69] }];
+// 가시: 4.5 m 앞에서 미리 솟아 보이게 (감지는 가시 시작점 1.5 m 앞까지만 → 발밑에서 솟는 일 없음, 솟은 뒤 점프로 넘을 수 있음)
+const SPIKES = [{ x0: 66, x1: 68, trig: [61.5, 64.5] }];
 const FAKE_FLAG = { x: 86 };
 const METEORS = [{ trig: 95.5, aim: 2.6 }, { trig: 88.2, aim: 1.2, after: 'flag' }];
 const PLATFORMS = [
@@ -36,7 +37,8 @@ const PLATFORMS = [
   { x0: 116.6, x1: 118.8, y: 2.6, drop: true }, // 밟으면 잠깐 뒤 아래로 빠짐
   { x0: 121, x1: 123.2, y: 1.6 },
 ];
-const WALKERS = [{ x: 74, min: 70.5, max: 79 }, { x: 102, min: 98, max: 108.5 }, { x: 140, min: 136, max: 148 }];
+// 첫 외계인은 가시를 넘어 착지하는 자리(69~72 m)에 오지 않게 73.5 m 뒤에서만 걸음
+const WALKERS = [{ x: 76, min: 73.5, max: 79.3 }, { x: 102, min: 98, max: 108.5 }, { x: 140, min: 136, max: 148 }];
 const POPPER = { x: 132.5, trig: 3.6 }; // 구멍에서 튀어나오는 외계인
 const LINES = ['속았지?', '또?', '원점으로~', '아깝다!', '그럴 줄 알았어', '다시 해 봐요!', '함정이 하나 더 있어요'];
 
@@ -598,7 +600,8 @@ export function createTrollScene(ctx) {
     if (st && P.stand.kind === 'plat' && st.drop && st.state === 'idle') { st.state = 'armed'; st.t = 0.22; }
     if (st && P.stand.kind === 'plat') P.y = st.y + st.dy; // 발판이 내려가면 같이
     // 가시
-    for (const s of T.spikes) if (s.up > 0.4 && P.x + PW / 2 > s.x0 && P.x - PW / 2 < s.x1 && P.y < s.up * 0.9 - 0.05) die('가시가 솟았어요!');
+    // 가시 판정은 눈에 보이는 것보다 조금 작게 (발끝이 살짝 스친 정도로는 죽지 않게)
+    for (const s of T.spikes) if (s.up > 0.4 && P.x + PW / 2 - 0.12 > s.x0 && P.x - PW / 2 + 0.12 < s.x1 && P.y < s.up * 0.75) die('가시가 솟았어요!');
     // 구덩이
     if (P.y < -7) die('구덩이에 빠졌어요');
     // 골인

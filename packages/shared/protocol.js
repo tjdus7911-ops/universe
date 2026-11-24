@@ -11,8 +11,10 @@ export const ZONES = {
   lounge: { r: 12, y: [-1, 12], speed: 6 },
   station: { r: 16, y: [-1, 12], speed: 7 },
   space: { box: 30000, speed: 260 },
-  // 깜빡 속았지! 달 대시 (옆으로 달리는 함정 게임 · x 0~200 m 코스)
+  // 깜빡 속았지! 달 대시 (옆으로 달리는 함정 게임 · 판마다 존이 따로 · x 0~200 m 코스)
   troll: { rect: { x: [-10, 215], y: [-30, 30], z: [-3, 3] }, speed: 24 },
+  troll2: { rect: { x: [-10, 215], y: [-30, 30], z: [-3, 3] }, speed: 24 },
+  troll3: { rect: { x: [-10, 215], y: [-30, 30], z: [-3, 3] }, speed: 24 },
 };
 export const ZONE_IDS = Object.keys(ZONES);
 

@@ -28,17 +28,21 @@ const FAKE_FLOOR = { x0: 56, x1: 60 }; // 진짜 바닥과 똑같이 생겼지�
 const COLLAPSE = { x0: 160, x1: 168 }; // 밟는 순간 1 m씩 차례로 떨어지는 바닥 (멈추지 않으면 건넘)
 const HIDDEN = [{ x: 28, y: 2.5 }, { x: 29, y: 2.5 }, { x: 150, y: 2.5 }, { x: 151, y: 2.5 }]; // 아래에서 머리로 부딪혀야 나타나는 투명 블록 (1×1, y = 아랫면)
 const CRATES = [{ x: 36, y: 3.2, kind: 'star' }, { x: 38, y: 3.2, kind: 'star' }, { x: 40, y: 3.2, kind: 'alien' }];
-// 가시: 4.5 m 앞에서 미리 솟아 보이게 (감지는 가시 시작점 1.5 m 앞까지만 → 발밑에서 솟는 일 없음, 솟은 뒤 점프로 넘을 수 있음)
-const SPIKES = [{ x0: 66, x1: 68, trig: [61.5, 64.5] }];
+// 가시: 바로 앞(1.4 m)에 땅을 밟고 서야 솟음 → 처음엔 속지만, 알고 나면 그보다 일찍(62~64.6 m에서) 뛰어 넘을 수 있음.
+// 감지 범위가 좁아 넘어가 착지한 발밑에서는 솟지 않고, 천천히 다가가면 솟는 걸 보고 제자리에서 넘을 수 있음
+const SPIKES = [{ x0: 66, x1: 67.6, trig: [64.6, 65.4] }];
 const FAKE_FLAG = { x: 86 };
-const METEORS = [{ trig: 95.5, aim: 2.6 }, { trig: 88.2, aim: 1.2, after: 'flag' }];
+// 운석: 떨어지기 시작할 때 '전속력으로 계속 달리면 닿을 자리'에 그림자로 미리 표시 → 멈추거나 속도를 줄이면 피함
+const METEORS = [{ trig: 95.5 }, { trig: 88.2, after: 'flag' }];
+const M_Y0 = 16, M_V0 = -6, M_G = 40;
+const M_FALL = (-Math.abs(M_V0) + Math.sqrt(M_V0 * M_V0 + 2 * M_G * (M_Y0 - 0.75))) / M_G; // 땅에 닿기까지(초) ≈ 0.74
 const PLATFORMS = [
   { x0: 112, x1: 114.2, y: 1.6 },
   { x0: 116.6, x1: 118.8, y: 2.6, drop: true }, // 밟으면 잠깐 뒤 아래로 빠짐
   { x0: 121, x1: 123.2, y: 1.6 },
 ];
-// 첫 외계인은 가시를 넘어 착지하는 자리(69~72 m)에 오지 않게 73.5 m 뒤에서만 걸음
-const WALKERS = [{ x: 76, min: 73.5, max: 79.3 }, { x: 102, min: 98, max: 108.5 }, { x: 140, min: 136, max: 148 }];
+// 외계인은 함정을 피한 자리에 오지 않게: 첫째는 가시 착지 자리(69~72 m) 뒤, 둘째는 운석 피해 멈추는 자리(96~101 m) 뒤에서만 걸음
+const WALKERS = [{ x: 76, min: 73.5, max: 79.3 }, { x: 106, min: 103.5, max: 109 }, { x: 140, min: 136, max: 148 }];
 const POPPER = { x: 132.5, trig: 3.6 }; // 구멍에서 튀어나오는 외계인
 const LINES = ['속았지?', '또?', '원점으로~', '아깝다!', '그럴 줄 알았어', '다시 해 봐요!', '함정이 하나 더 있어요'];
 
@@ -222,7 +226,24 @@ export function createTrollScene(ctx) {
     scene.add(g);
     return g;
   });
-  T.meteors = METEORS.map((d, i) => ({ ...d, mesh: meteorMeshes[i], state: 'idle', x: 0, y: 0, vy: 0 }));
+  const shadowM = () => new THREE.MeshBasicMaterial({ color: '#ff4a2a', transparent: true, opacity: 0.5, depthWrite: false });
+  T.meteors = METEORS.map((d, i) => {
+    // 떨어질 자리 표시: 바닥 원 + 하늘까지 빨간 빛기둥 + '!' (옆에서 보는 카메라에서도 잘 보이게)
+    const sh = new THREE.Group();
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(1.0, 28), shadowM());
+    disc.rotation.x = -Math.PI / 2;
+    const beamM = new THREE.MeshBasicMaterial({ color: '#ff5a3a', transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 16, 20, 1, true), beamM);
+    beam.position.y = 8;
+    const warn = textSprite('!', { size: 70, color: '#ffffff', bg: 'rgba(230,60,40,0.92)' });
+    warn.scale.set(1.0, 0.38, 1);
+    warn.position.y = 2.6;
+    sh.add(disc, beam, warn);
+    sh.userData = { disc, beamM };
+    sh.visible = false;
+    scene.add(sh);
+    return { ...d, mesh: meteorMeshes[i], shadow: sh, state: 'idle', x: 0, y: 0, vy: 0 };
+  });
   T.plats = PLATFORMS.map((d) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(d.x1 - d.x0, 0.4, 2.2), std('#c6cbdb', { r: 0.4, m: 0.5 }));
     m.castShadow = m.receiveShadow = true;
@@ -261,7 +282,7 @@ export function createTrollScene(ctx) {
     Object.assign(T.fakeFlag, { state: 'idle', t: 0 });
     T.fakeFlag.g.position.set(FAKE_FLAG.x, 0, -0.4);
     T.fakeFlag.g.rotation.set(0, 0, 0);
-    T.meteors.forEach((m) => { m.state = 'idle'; m.mesh.visible = false; });
+    T.meteors.forEach((m) => { m.state = 'idle'; m.mesh.visible = false; m.shadow.visible = false; });
     T.plats.forEach((p) => Object.assign(p, { dy: 0, vy: 0, state: 'idle', t: 0 }));
     T.walkers.forEach((w) => Object.assign(w, { x: w.min + (w.max - w.min) * 0.6, dir: -1, alive: true, squish: 0 }));
     T.walkers.forEach((w) => { w.mesh.visible = true; w.mesh.scale.set(1, 1, 1); });
@@ -435,7 +456,7 @@ export function createTrollScene(ctx) {
     }
     // 가짜 골인 깃발: 다가가면 날아감
     const F = T.fakeFlag;
-    if (F.state === 'idle' && px > F.x - 2.4) {
+    if (F.state === 'idle' && px > F.x - 2.4 && px < F.x + 4) {
       F.state = 'fly'; F.t = 0;
       setTrollTag('가짜지롱~ 😜', F.x, 6.4);
       const m = T.meteors.find((q) => q.after === 'flag');
@@ -451,18 +472,26 @@ export function createTrollScene(ctx) {
     F.g.visible = F.state !== 'gone';
     // 운석: 지나가면 내 앞을 노리고 떨어짐
     for (const m of T.meteors) {
-      if (m.state === 'idle' && !m.after && px > m.trig) { m.state = 'wait'; m.wait = 0.05; }
+      if (m.state === 'idle' && !m.after && px > m.trig && px < m.trig + 4) { m.state = 'wait'; m.wait = 0.05; } // 그 자리를 지나갈 때만
       if (m.state === 'wait') {
         m.wait -= dt;
-        if (m.wait <= 0) { m.state = 'fall'; m.x = Math.max(m.trig, P.x) + m.aim + P.vx * 0.25; m.y = 16; m.vy = -6; }
+        if (m.wait <= 0) { m.state = 'fall'; m.x = P.x + RUN * M_FALL; m.y = M_Y0; m.vy = M_V0; }
       }
       if (m.state === 'fall') {
-        m.vy -= 40 * dt; m.y += m.vy * dt;
+        m.vy -= M_G * dt; m.y += m.vy * dt;
         if (m.y <= 0.75) { m.y = 0.75; m.state = 'land'; m.t = 0.9; }
-        if (Math.abs(P.x - m.x) < 1.05 && P.y < m.y + 0.6 && P.y + PH > m.y - 0.7) die('운석 조심!');
+        if (Math.abs(P.x - m.x) < 0.8 && P.y < m.y + 0.5 && P.y + PH > m.y - 0.6) die('운석 조심! 그림자를 봐요');
       }
       if (m.state === 'land') { m.t -= dt; if (m.t <= 0) m.state = 'gone'; }
       m.mesh.visible = m.state === 'fall' || m.state === 'land';
+      m.shadow.visible = m.state === 'fall';
+      if (m.state === 'fall') {
+        const k = 1 - Math.max(0, Math.min(1, (m.y - 0.75) / M_Y0));
+        m.shadow.position.set(m.x, 0.03, 0);
+        m.shadow.userData.disc.scale.setScalar(0.5 + k * 0.8);
+        m.shadow.userData.disc.material.opacity = 0.35 + k * 0.45;
+        m.shadow.userData.beamM.opacity = 0.1 + k * 0.14 + Math.sin(t * 30) * 0.04;
+      }
       m.mesh.position.set(m.x, m.y, 0);
       m.mesh.rotation.x += dt * 6;
     }
@@ -596,7 +625,7 @@ export function createTrollScene(ctx) {
     // 밟은 것에 따라: 가짜 바닥 · 무너지는 바닥 · 빠지는 발판
     const st = P.stand?.ref;
     if (st && P.stand.kind === 'fake' && st.state === 'idle') { st.state = 'shake'; st.t = 0.12; setTrollTag('여긴 가짜 바닥~', (st.x0 + st.x1) / 2, 3); }
-    if (st && P.stand.kind === 'collapse' && st.state === 'idle') { st.state = 'shake'; st.t = 0.16; }
+    if (st && P.stand.kind === 'collapse' && st.state === 'idle') { st.state = 'shake'; st.t = 0.3; } // 계속 달리면 반드시 건너고, 멈추면 떨어짐
     if (st && P.stand.kind === 'plat' && st.drop && st.state === 'idle') { st.state = 'armed'; st.t = 0.22; }
     if (st && P.stand.kind === 'plat') P.y = st.y + st.dy; // 발판이 내려가면 같이
     // 가시
@@ -671,6 +700,7 @@ export function createTrollScene(ctx) {
           OV = null;
           return window.__troll.state();
         },
+        restart: () => restart(),
         place: (x, y = 0) => { ctx.multi.warp(); P.x = x; P.y = y; P.vx = 0; P.vy = 0; },
         traps: () => ({ fake: T.fake.state, hidden: T.hidden.map((d) => d.shown), spikes: T.spikes.map((s) => s.on), flag: T.fakeFlag.state, meteors: T.meteors.map((m) => m.state), plat: T.plats.map((p) => p.state), popper: T.popper.state, walkers: T.walkers.map((w) => [+w.x.toFixed(2), w.alive]), collapse: T.collapse.filter((c) => c.state !== 'idle').length }),
       };

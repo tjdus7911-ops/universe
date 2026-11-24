@@ -5,14 +5,14 @@
 export const PROTOCOL = 1;
 
 // 공간(존)별 이동 가능 범위와 최고 속도 (m/s · 우주 탐험은 게임 단위/초)
-//  r: 원점 기준 수평 반경 · y: 높이 범위 · box: 각 축 절댓값 한계 · rect: 축별 [최소, 최대] · speed: 상한(여유 포함)
+//  r: 원점 기준 수평 반경 · y: 높이 범위 · box: 각 축 절댓값 한계 · speed: 상한(여유 포함)
 export const ZONES = {
   moon: { r: 52, y: [-30, 80], speed: 9 },
   lounge: { r: 12, y: [-1, 12], speed: 6 },
   station: { r: 16, y: [-1, 12], speed: 7 },
   space: { box: 30000, speed: 260 },
-  // 우주 엘리베이터 1구간 (옆에서 보는 2.5D · packages/shared/climb.js의 CLIMB_BOUNDS와 같은 값)
-  climb: { rect: { x: [-18, 18], y: [-4, 35], z: [-3, 3] }, speed: 14 },
+  // 깜빡 속았지! 달 대시 (옆으로 달리는 함정 게임 · x 0~200 m 코스)
+  troll: { rect: { x: [-10, 215], y: [-30, 30], z: [-3, 3] }, speed: 24 },
 };
 export const ZONE_IDS = Object.keys(ZONES);
 
@@ -97,13 +97,6 @@ export function sanitizeState(zone, s) {
     }
   }
   return out;
-}
-
-// 보스 피해 기록 (Claude 실시간 방에서만 presence로 주고받음): [판 번호, 내가 준 피해]
-export function sanitizeBossDmg(v) {
-  if (!Array.isArray(v) || v.length !== 2 || !v.every(Number.isInteger)) return null;
-  if (v[0] < 0 || v[0] > 1e6 || v[1] < 0 || v[1] > 40) return null;
-  return [v[0], v[1]];
 }
 
 // 다른 사람 프로필 (닉네임·우주복·피부색 번호)

@@ -18,7 +18,6 @@ import zlib from 'node:zlib';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { Server } from 'socket.io';
 import { PROTOCOL, ZONES, MODES, cleanText, sanitizeProfile, sanitizeState } from '../../packages/shared/protocol.js';
-import { bossMaxHp, canHit, CRYSTAL, HIT_COOLDOWN, WIN_PAUSE } from '../../packages/shared/climb.js';
 
 const PORT = Number(process.env.PORT) || 8787;
 const CAP = Math.max(2, Number(process.env.CHANNEL_CAP) || 30);
@@ -93,7 +92,7 @@ function originAllowed(req) {
 const RES = 10; // 이벤트 루프 지연 측정 간격(ms): 잰 값에서 이 간격을 빼야 실제 '밀린 시간'
 const loop = monitorEventLoopDelay({ resolution: RES });
 loop.enable();
-const stat = { inMsgs: 0, outSnaps: 0, outBytes: 0, chats: 0, fixes: 0, dropped: 0, kicked: 0, seatRejects: 0, bossHits: 0, bossRejects: 0 };
+const stat = { inMsgs: 0, outSnaps: 0, outBytes: 0, chats: 0, fixes: 0, dropped: 0, kicked: 0, seatRejects: 0 };
 let cpuPrev = process.cpuUsage(), cpuAt = process.hrtime.bigint();
 
 // ---------- HTTP: /health · /stats ----------
@@ -150,24 +149,11 @@ function pickChannel(zone) {
     let c = channels.get(key);
     if (!c) {
       c = { zone, ch, key, players: new Map(), seats: new Map(), dirty: true, lastSent: 0 };
-      if (zone === 'climb') c.boss = newFight(c, 1);
       channels.set(key, c);
     }
     if (c.players.size < CAP) return c;
   }
 }
-// ---------- 협동 보스 (우주 엘리베이터 1구간): 체력은 서버만 깎는다 ----------
-const nowSec = () => Date.now() / 1000;
-function newFight(c, f) {
-  const max = bossMaxHp(Math.max(1, c.players.size));
-  return { f, max, hp: max, hits: 0, win: false, since: Math.floor(nowSec()), timer: null };
-}
-function bossMsg(c) {
-  const b = c.boss;
-  return { f: b.f, hp: b.hp, max: b.max, win: b.win, since: b.since, now: Date.now() };
-}
-function sendBoss(c) { io.to(c.key).emit('boss', bossMsg(c)); }
-
 function leaveChannel(P) {
   const c = P.chan;
   if (!c) return;
@@ -178,10 +164,7 @@ function leaveChannel(P) {
   P.sock.to(c.key).emit('gone', { id: P.id });
   P.chan = null;
   P.st = null;
-  if (!c.players.size) {
-    if (c.boss?.timer) clearTimeout(c.boss.timer);
-    channels.delete(c.key);
-  }
+  if (!c.players.size) channels.delete(c.key);
 }
 
 // ---------- 횟수 제한 (토큰 버킷) ----------
@@ -222,7 +205,7 @@ io.on('connection', (sock) => {
     b: { all: bucket(40, 80), st: bucket(15, 20), chat: bucket(1, 3), join: bucket(2, 4) },
   };
   players.set(sock.id, P);
-  sock.emit('welcome', { id: P.id, v: PROTOCOL, cap: CAP, t: Date.now() });
+  sock.emit('welcome', { id: P.id, v: PROTOCOL, cap: CAP });
 
   // 모든 이벤트 공통: 너무 자주 보내면 버리고, 1초에 30번 넘게 버려지면 끊음
   sock.use(([ev], next) => {
@@ -254,39 +237,6 @@ io.on('connection', (sock) => {
     sock.emit('meta', [...c.players.values()].map((q) => ({ id: q.id, ...q.prof })));
     sock.to(c.key).emit('meta', [{ id: P.id, ...P.prof }]);
     c.dirty = true;
-    if (c.boss) {
-      // 아직 아무도 때리지 않은 판이면 들어온 인원에 맞춰 체력을 다시 정함
-      const b = c.boss;
-      if (!b.win && !b.hits) { b.max = bossMaxHp(c.players.size); b.hp = b.max; }
-      sendBoss(c);
-    }
-  });
-
-  // 보스 약점 밟기: 판 번호 · 쉬는 시간 · 결정 근처 위치 · 사람마다 간격을 서버가 다시 확인
-  sock.on('bhit', (o) => {
-    const c = P.chan;
-    const b = c?.boss;
-    if (!b || b.win || o?.f !== b.f) { if (process.env.DEBUG_BOSS) console.log('reject f', o, b && b.f, b && b.win); return; }
-    const now = Date.now();
-    if (now - (P.lastHit || 0) < HIT_COOLDOWN * 1000) return;
-    if (!canHit(now / 1000, 0.4)) { stat.bossRejects++; if (process.env.DEBUG_BOSS) console.log('reject time', now / 1000 % 16); return; }
-    const st = P.st;
-    if (!st || now - P.stAt > 1500) { stat.bossRejects++; if (process.env.DEBUG_BOSS) console.log('reject stale', st, now - P.stAt); return; }
-    const [x, y] = st.p;
-    if (Math.abs(x - CRYSTAL.x) > 2.2 || y < CRYSTAL.yRest - 1.6 || y > CRYSTAL.yRest + 2.6) { stat.bossRejects++; if (process.env.DEBUG_BOSS) console.log('reject far', x, y); return; }
-    P.lastHit = now;
-    b.hp = Math.max(0, b.hp - 1);
-    b.hits++;
-    stat.bossHits++;
-    if (b.hp === 0) {
-      b.win = true;
-      b.timer = setTimeout(() => {
-        if (channels.get(c.key) !== c) return;
-        c.boss = newFight(c, b.f + 1);
-        sendBoss(c);
-      }, WIN_PAUSE * 1000);
-    }
-    sendBoss(c);
   });
 
   sock.on('leave', () => leaveChannel(P));

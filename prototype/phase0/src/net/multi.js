@@ -1,4 +1,4 @@
-import { PROTOCOL, MODES, cleanText, cleanName, sanitizeProfile, sanitizeState, sanitizeBossDmg, zoneOf } from '../../../../packages/shared/protocol.js';
+import { PROTOCOL, MODES, cleanText, cleanName, sanitizeProfile, sanitizeState, zoneOf } from '../../../../packages/shared/protocol.js';
 import { SKINS } from '../world/astronaut.js';
 
 // 멀티플레이 — 같은 공간(존)에 있는 다른 사람의 아바타·움직임·감정 표현·월면차 탑승·채팅
@@ -27,15 +27,13 @@ export function createMulti(ctx) {
     lastSend: 0,
     lastJson: '',
     channel: null,
-    off: 0, // 서버 시계 - 내 시계 (ms) · 서버 모드에서만
-    bd: null, // [판 번호, 내가 준 보스 피해] · 실시간 방 모드에서 presence로
   };
-  const L = { chat: new Set(), seat: new Set(), boss: new Set() };
+  const L = { chat: new Set(), seat: new Set() };
   const fire = (k, v) => L[k].forEach((f) => { try { f(v); } catch (e) { console.error(e); } });
   const skinIdx = () => Math.max(0, SKINS.indexOf(ctx.profile.skin));
   const profile = () => ({ v: PROTOCOL, n: cleanName(ctx.profile.name) || '탐험가', s: ctx.profile.preset, k: skinIdx() });
 
-  function upsertPeer(id, prof, st, chatList, quietFirst = true, bd = null) {
+  function upsertPeer(id, prof, st, chatList, quietFirst = true) {
     let e = S.peers.get(id);
     const fresh = !e;
     if (!e) {
@@ -46,7 +44,6 @@ export function createMulti(ctx) {
     e.suit = prof.s;
     e.skin = prof.k;
     e.st = st;
-    e.bd = bd;
     // presence로 온 채팅: 처음 본 사람의 지난 채팅은 다시 띄우지 않는다
     if (Array.isArray(chatList)) {
       let max = e.seenSeq;
@@ -107,7 +104,7 @@ export function createMulti(ctx) {
       const st = sanitizeState(S.zone, pr);
       if (!st) continue;
       seen.add(p.peer);
-      upsertPeer(p.peer, sanitizeProfile(pr), st, pr.c, true, sanitizeBossDmg(pr.bd));
+      upsertPeer(p.peer, sanitizeProfile(pr), st, pr.c);
     }
     for (const id of [...S.peers.keys()]) if (!seen.has(id)) S.peers.delete(id);
   }
@@ -118,8 +115,6 @@ export function createMulti(ctx) {
     let io;
     try { ({ io } = await import('socket.io-client')); } catch { return false; }
     sock = io(url, { transports: ['websocket'], reconnectionDelayMax: 4000, timeout: 8000 });
-    // 시험용: 서버 판정 확인에 쓰는 날 보내기 (개발자 도구로 누구나 할 수 있는 일이라 서버가 다시 확인한다)
-    window.__multiRaw = { emit: (e, d) => sock.emit(e, d) };
     S.mode = 'server';
     sock.on('connect', () => {
       S.connected = true;
@@ -127,7 +122,7 @@ export function createMulti(ctx) {
       if (S.zone) sock.emit('join', { z: S.zone });
     });
     sock.on('disconnect', () => { S.connected = false; S.peers.clear(); });
-    sock.on('welcome', (m) => { S.myId = String(m?.id ?? ''); if (Number.isFinite(m?.t)) S.off = m.t - Date.now(); });
+    sock.on('welcome', (m) => { S.myId = String(m?.id ?? ''); });
     sock.on('joined', (m) => { S.channel = m?.ch ?? null; S.peers.clear(); S.meta.clear(); });
     sock.on('meta', (list) => {
       if (!Array.isArray(list)) return;
@@ -143,12 +138,6 @@ export function createMulti(ctx) {
       if (text) fire('chat', { peer: id, who, text, zone: S.zone });
     });
     sock.on('seatTaken', (m) => fire('seat', m));
-    // 보스 상태 (서버가 판정): { f 판, hp, max, win, now }
-    sock.on('boss', (m) => {
-      if (!m || !Number.isInteger(m.f) || !Number.isFinite(m.hp) || !Number.isFinite(m.max)) return;
-      if (Number.isFinite(m.now)) S.off = m.now - Date.now();
-      fire('boss', { f: m.f, hp: Math.max(0, m.hp | 0), max: Math.max(1, m.max | 0), win: !!m.win, since: Number.isFinite(m.since) ? m.since : null });
-    });
     return true;
   }
   // 스냅숏: { z, l: [[id, x, y, z, h, m, extra?], …] } · extra = { q, rv, rp }
@@ -173,7 +162,7 @@ export function createMulti(ctx) {
     if (!S.self || !S.zone) return;
     const now = performance.now();
     if (S.mode === 'room' && zr) {
-      const body = { ...profile(), z: S.zone, p: S.self.p, h: S.self.h, m: S.self.m, q: S.self.q || null, rv: S.self.rv || null, rp: S.self.rp || null, c: S.myChat, bd: S.bd };
+      const body = { ...profile(), z: S.zone, p: S.self.p, h: S.self.h, m: S.self.m, q: S.self.q || null, rv: S.self.rv || null, rp: S.self.rp || null, c: S.myChat };
       const json = JSON.stringify(body);
       if (!force && (json === S.lastJson || now - S.lastSend < 125)) return;
       S.lastSend = now;
@@ -232,16 +221,6 @@ export function createMulti(ctx) {
       } else if (S.mode === 'server' && sock?.connected) sock.emit('chat', t);
     },
     onChat(fn) { L.chat.add(fn); return () => L.chat.delete(fn); },
-    // ---------- 협동 보스 (우주 엘리베이터) ----------
-    // 공통 시계(초): 서버 모드는 서버 시계, 그 밖에는 내 시계 (실시간 방 사람들끼리는 각자 시계라 조금 어긋날 수 있음)
-    nowSec() { return (Date.now() + (S.mode === 'server' ? S.off : 0)) / 1000; },
-    onBoss(fn) { L.boss.add(fn); return () => L.boss.delete(fn); },
-    // 서버 모드: 약점을 밟았다고 알림 (서버가 위치·시간·간격을 다시 확인해 체력을 깎음)
-    // (바로 앞에 내 위치를 먼저 보내서 서버가 최신 위치로 확인하게)
-    bossHit(f) { if (S.mode === 'server' && sock?.connected) { send(true); sock.emit('bhit', { f }); } },
-    // 실시간 방 모드: 내가 준 피해를 presence에 실어 보냄 → 체력 = 최대 - 모두의 피해 합
-    setBossDmg(bd) { S.bd = bd; if (S.mode === 'room') send(true); },
-    peerBossDmg() { return [...S.peers.values()].map((p) => p.bd).filter(Boolean); },
     onSeat(fn) { L.seat.add(fn); return () => L.seat.delete(fn); },
     // 화면 표시용 한 줄
     statusText() {

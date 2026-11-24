@@ -16,7 +16,7 @@ const SCENES = [
   { id: 'station', label: '정거장 · 지구 전망', load: () => import('./scenes/station.js').then((m) => m.createStationScene) },
   { id: 'lounge', label: '달 기지 라운지', load: () => import('./scenes/lounge.js').then((m) => m.createLoungeScene) },
   { id: 'space', label: '우주 탐험 · 아바타 비행', load: () => import('./scenes/space.js').then((m) => m.createSpaceScene) },
-  { id: 'climb', label: '우주 엘리베이터 · 협동', load: () => import('./scenes/climb.js').then((m) => m.createClimbScene) },
+  { id: 'troll', label: '깜빡 속았지! 달 대시', load: () => import('./scenes/troll.js').then((m) => m.createTrollScene) },
   { id: 'planet', label: '행성 정보', load: () => import('./scenes/planet.js').then((m) => m.createPlanetScene) },
 ];
 

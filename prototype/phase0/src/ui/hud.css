@@ -517,20 +517,17 @@ body { display: flex; flex-direction: column; }
 .is-mobile .tr .btn.return b { display: none; }
 .is-mobile .tr .btn.return { padding: 0 12px; height: 42px; }
 
-/* 우주 엘리베이터: 보스 체력 막대 · 클리어 카드 */
-.boss-bar { width: min(440px, calc(100vw - 32px)); padding: 9px 14px 8px; display: grid; gap: 5px; }
-.boss-bar .bb-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13.5px; }
-.boss-bar .bb-top span { font-size: 12px; color: var(--text-2); font-weight: 600; white-space: nowrap; }
-.boss-bar .bb-track { height: 10px; border-radius: 6px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
-.boss-bar .bb-track i { display: block; height: 100%; width: 100%; border-radius: 6px; background: linear-gradient(90deg, #ff7a45, #ffd04a); transition: width 0.25s ease; }
-.boss-bar .bb-track i.flash { background: #ffffff; }
-.boss-bar small { font-size: 12px; color: var(--text-2); }
-.boss-bar.rest { border-color: rgba(127, 243, 255, 0.7); box-shadow: 0 0 22px rgba(54, 216, 255, 0.35); }
-.boss-bar.rest small { color: #7ff3ff; font-weight: 700; }
-#hud:has(.boss-bar) .toast { top: 104px; }
-.climb-win .sci { margin-top: 10px; padding: 12px 14px; border-radius: 14px; background: #f2f7ff; color: #24305c; font-size: 13px; line-height: 1.55; }
-.climb-win .sci b { display: block; margin-bottom: 4px; color: #141b3d; }
-.climb-win .note { color: #5a6190; margin-top: 10px; }
-.is-mobile .boss-bar { width: calc(100vw - 24px); padding: 7px 11px 6px; }
-.is-mobile .boss-bar small { font-size: 11px; }
-.is-mobile #hud:has(.boss-bar) .toast { top: 216px; }
+/* 깜빡 속았지! 달 대시 */
+.troll-bar { display: flex; align-items: center; gap: 14px; padding: 9px 16px; font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+.troll-bar b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.troll-bar .prog { width: 120px; height: 8px; border-radius: 5px; background: rgba(255, 255, 255, 0.12); overflow: hidden; display: inline-block; }
+.troll-bar .prog i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #6ff0d2, #ffd04a); border-radius: 5px; }
+.troll-clear .troll-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.troll-clear .troll-stats div { background: #f2f7ff; border-radius: 14px; padding: 12px 8px; text-align: center; display: grid; gap: 2px; }
+.troll-clear .troll-stats b { font-size: 20px; color: #141b3d; }
+.troll-clear .troll-stats span { font-size: 12px; color: #5a6190; }
+.troll-clear .note { color: #5a6190; margin-top: 10px; }
+#hud:has(.troll-bar) .toast { top: 70px; }
+.is-mobile .troll-bar { gap: 10px; padding: 7px 12px; font-size: 12px; }
+.is-mobile .troll-bar .prog { width: 64px; }
+.is-mobile #hud:has(.troll-bar) .toast { top: 150px; }

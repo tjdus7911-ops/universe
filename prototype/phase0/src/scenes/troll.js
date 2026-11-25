@@ -619,12 +619,15 @@ export function createTrollScene(ctx) {
   }
 
   // ---------- 물리 ----------
+  let keyFresh = true;
   let OV = null; // 시험용 가상 입력 { x, jump, fresh }
   function step(dt, now) {
     const mi = OV ? { x: OV.x } : moveIntent();
     const held = OV ? OV.jump : input.keys.has(' ') || input.keys.has('w') || input.keys.has('arrowup') || input.hold.up;
-    const pressed = OV ? OV.fresh : input.pressed.has(' ') || input.pressed.has('w') || input.pressed.has('arrowup') || jumpQueued;
+    // 키 '눌림'은 한 프레임 동안 남아 있으므로 첫 번째 나눔 계산에서만 쓴다 (안 그러면 점프 한 번이 곧바로 2단 점프가 됨)
+    const pressed = OV ? OV.fresh : (keyFresh && (input.pressed.has(' ') || input.pressed.has('w') || input.pressed.has('arrowup'))) || jumpQueued;
     if (OV) OV.fresh = false;
+    keyFresh = false;
     jumpQueued = false;
     if (!OV && input.pressed.has('r') && !P.cleared) die('이 판 처음부터!', true);
     if (P.dead || P.cleared) { P.buffer = 0; return; }
@@ -727,6 +730,7 @@ export function createTrollScene(ctx) {
   }
   function tick(d, now, t) {
     // 두 번 나눠 계산해서 빠르게 달려도 벽·바닥을 뚫지 않게
+    keyFresh = true;
     step(d / 2, now);
     step(d / 2, now);
     if (P.dead) {
